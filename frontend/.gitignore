@@ -2,3 +2,5 @@ node_modules/
 .nuxt/
 .output/
 dist/
+pnpm-lock.yaml
+pnpm-workspace.yaml

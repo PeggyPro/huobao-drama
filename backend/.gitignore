@@ -3,3 +3,5 @@ dist/
 *.js
 *.d.ts
 *.map
+pnpm-lock.yaml
+pnpm-workspace.yaml

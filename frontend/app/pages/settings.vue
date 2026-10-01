@@ -735,7 +735,11 @@ const serviceTypes = computed(() => [
   { type: 'video', label: t('common.serviceType.video') },
 ])
 const providers = ['gemini', 'openai', 'volcengine', 'minimax', 'aliyun']
-const providerSelectOptions = computed(() => providers.map(p => ({ label: p, value: p })))
+const textProviders = [...providers, 'xiaomi-token-plan-cn', 'xiaomi']
+const providerSelectOptions = computed(() => {
+  const availableProviders = cfgForm.service_type === 'text' ? textProviders : providers
+  return availableProviders.map(p => ({ label: p, value: p }))
+})
 const serviceMeta = computed(() => ({
   text: { label: t('common.serviceType.text'), desc: t('settings.ai.meta.text') },
   image: { label: t('common.serviceType.image'), desc: t('settings.ai.meta.image') },
