@@ -734,8 +734,8 @@ const serviceTypes = computed(() => [
   { type: 'image', label: t('common.serviceType.image') },
   { type: 'video', label: t('common.serviceType.video') },
 ])
-const providers = ['gemini', 'openai', 'volcengine', 'minimax', 'aliyun']
-const textProviders = [...providers, 'xiaomi-token-plan-cn', 'xiaomi']
+const providers = ['gemini', 'openai', 'volcengine', 'minimax', 'aliyun', 'comfyui']
+const textProviders = [...providers.filter(p => p !== 'comfyui'), 'xiaomi-token-plan-cn', 'xiaomi']
 const providerSelectOptions = computed(() => {
   const availableProviders = cfgForm.service_type === 'text' ? textProviders : providers
   return availableProviders.map(p => ({ label: p, value: p }))
@@ -749,15 +749,19 @@ const providerPresets = {
   text: {
     gemini: { label: 'Gemini 官方', baseUrl: 'https://generativelanguage.googleapis.com', models: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'] },
     openai: { label: 'OpenAI 官方', baseUrl: 'https://api.openai.com', models: ['deepseek-v4-pro', 'gpt-5.6-terra'] },
+    'xiaomi-token-plan-cn': { label: '小米 MiMo Token Plan', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'] },
+    xiaomi: { label: '小米 MiMo API', baseUrl: 'https://api.xiaomimimo.com/v1', models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'] },
   },
   image: {
     gemini: { label: 'Gemini 官方', baseUrl: 'https://generativelanguage.googleapis.com', models: ['gemini-3-pro-image', 'gemini-3.1-flash-image'] },
     openai: { label: 'OpenAI 官方', baseUrl: 'https://api.openai.com', models: ['gpt-image-2'] },
+    comfyui: { label: '本地 ComfyUI · 文生图', baseUrl: 'http://127.0.0.1:8188', models: ['V4-09_Z-Image_Turbo_文生图_4K'] },
   },
   video: {
     aliyun: { label: '阿里云百炼 Wan 3.0', baseUrl: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com', models: ['wan3.0-video', 'wan3.0-video-prime'] },
     volcengine: { label: 'Seedance 2.0 官方', baseUrl: 'https://ark.cn-beijing.volces.com', models: ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-2-0-260128'] },
     minimax: { label: 'MiniMax H3 官方', baseUrl: 'https://api.minimaxi.com', models: ['MiniMax-H3'] },
+    comfyui: { label: '本地 ComfyUI · 双采流程', baseUrl: 'http://127.0.0.1:8188', models: ['zib+zit+最大程度保持原样双采+'] },
   },
 }
 const huobaoQuickConfigs = [

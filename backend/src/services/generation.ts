@@ -277,7 +277,7 @@ async function processTask(id: number, config: AIConfig) {
 
     if (type === 'image') {
       const adapter = getImageAdapter(config.provider)
-      const { isAsync, taskId, imageUrl } = adapter.parseGenerateResponse(result)
+      const { isAsync, taskId, imageUrl } = adapter.parseGenerateResponse(result, config)
 
       if (!isAsync && imageUrl) {
         logTaskProgress(label, 'sync-complete', { id, imageUrl })
@@ -302,7 +302,7 @@ async function processTask(id: number, config: AIConfig) {
     }
 
     const adapter = getVideoAdapter(config.provider)
-    const { isAsync, taskId, videoUrl } = adapter.parseGenerateResponse(result)
+    const { isAsync, taskId, videoUrl } = adapter.parseGenerateResponse(result, config)
 
     if (!isAsync && videoUrl) {
       logTaskProgress(label, 'sync-complete', { id, videoUrl })
@@ -368,7 +368,7 @@ async function pollTask(record: SysTaskRecord, config: AIConfig, taskId: string)
       const result = await resp.json() as any
 
       // 图片/视频 PollResponse 结构不同，这里统一按 any 取值后按 type 分支
-      const pollResp: any = adapter.parsePollResponse(result)
+      const pollResp: any = adapter.parsePollResponse(result, config)
 
       if (pollResp.status === 'completed') {
         if (type === 'image') {

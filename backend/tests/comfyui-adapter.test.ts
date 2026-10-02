@@ -33,6 +33,9 @@ process.env.COMFYUI_IMAGE_WORKFLOW = imageWorkflowPath
 process.env.COMFYUI_VIDEO_WORKFLOW = videoWorkflowPath
 
 const {
+  COMFYUI_IMAGE_WORKFLOW,
+  COMFYUI_VIDEO_WORKFLOW,
+  COMFYUI_WORKFLOWS,
   ComfyUIImageAdapter,
   ComfyUIVideoAdapter,
 } = await import('../src/services/adapters/comfyui.ts')
@@ -57,6 +60,25 @@ after(() => {
   if (previousVideoWorkflow === undefined) delete process.env.COMFYUI_VIDEO_WORKFLOW
   else process.env.COMFYUI_VIDEO_WORKFLOW = previousVideoWorkflow
   rmSync(tempDir, { recursive: true, force: true })
+})
+
+test('ComfyUI workflow names stay mapped to their public service APIs', () => {
+  assert.equal(COMFYUI_IMAGE_WORKFLOW, 'V4-09_Z-Image_Turbo_文生图_4K')
+  assert.equal(COMFYUI_VIDEO_WORKFLOW, 'zib+zit+最大程度保持原样双采+')
+  assert.deepEqual(COMFYUI_WORKFLOWS.image, {
+    serviceType: 'image',
+    provider: 'comfyui',
+    model: COMFYUI_IMAGE_WORKFLOW,
+    workflowFile: 'V4-09_Z-Image_Turbo_文生图_4K.json',
+    outputType: 'image',
+  })
+  assert.deepEqual(COMFYUI_WORKFLOWS.video, {
+    serviceType: 'video',
+    provider: 'comfyui',
+    model: COMFYUI_VIDEO_WORKFLOW,
+    workflowFile: 'zib+zit+最大程度保持原样双采+.json',
+    outputType: 'video',
+  })
 })
 
 test('ComfyUI image adapter injects prompt and preserves request/poll URLs', () => {

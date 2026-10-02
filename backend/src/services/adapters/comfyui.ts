@@ -184,13 +184,18 @@ function historyEntry(result: any): Record<string, any> | null {
 function outputFile(entry: Record<string, any>, keys: string[]): Record<string, any> | null {
   const outputs = entry.outputs
   if (!outputs || typeof outputs !== 'object') return null
+  let fallback: Record<string, any> | null = null
   for (const output of Object.values(outputs) as Record<string, any>[]) {
     for (const key of keys) {
       const files = output?.[key]
-      if (Array.isArray(files) && files[0]?.filename) return files[0]
+      if (!Array.isArray(files)) continue
+      const validFiles = files.filter((file: any) => file?.filename)
+      const saved = validFiles.find((file: any) => file.type === 'output')
+      if (saved) return saved
+      if (!fallback && validFiles[0]) fallback = validFiles[0]
     }
   }
-  return null
+  return fallback
 }
 
 function historyStatus(entry: Record<string, any>): 'pending' | 'processing' | 'completed' | 'failed' {

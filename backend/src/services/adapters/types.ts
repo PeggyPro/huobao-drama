@@ -15,7 +15,7 @@ export interface ImageProviderAdapter {
   /**
    * 解析生成响应，判断是同步还是异步
    */
-  parseGenerateResponse(result: any): ImageGenResponse
+  parseGenerateResponse(result: any, config?: AIConfig): ImageGenResponse
 
   /**
    * 构建轮询请求
@@ -27,7 +27,7 @@ export interface ImageProviderAdapter {
   /**
    * 解析轮询响应
    */
-  parsePollResponse(result: any): ImagePollResponse
+  parsePollResponse(result: any, config?: AIConfig): ImagePollResponse
 
   /**
    * 从响应中提取图片 URL（用于直接下载）
@@ -50,11 +50,11 @@ export interface VideoProviderAdapter {
 
   buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): ProviderRequest
 
-  parseGenerateResponse(result: any): VideoGenResponse
+  parseGenerateResponse(result: any, config?: AIConfig): VideoGenResponse
 
   buildPollRequest(config: AIConfig, taskId: string): ProviderRequest
 
-  parsePollResponse(result: any): VideoPollResponse
+  parsePollResponse(result: any, config?: AIConfig): VideoPollResponse
 
   extractVideoUrl(result: any): string | null
 }

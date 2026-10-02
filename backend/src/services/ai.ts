@@ -30,8 +30,8 @@ export function parseConfigTemperature(settingsRaw: string | null | undefined): 
 
 export const officialProviders: Record<ServiceType, readonly string[]> = {
   text: ['openai', 'gemini', 'volcengine', 'xiaomi-token-plan-cn', 'xiaomi'],
-  image: ['openai', 'gemini', 'volcengine'],
-  video: ['volcengine', 'minimax', 'aliyun'],
+  image: ['openai', 'gemini', 'volcengine', 'comfyui'],
+  video: ['volcengine', 'minimax', 'aliyun', 'comfyui'],
 }
 
 export function isOfficialProvider(serviceType?: string | null, provider?: string | null): boolean {
@@ -42,7 +42,7 @@ export function isOfficialProvider(serviceType?: string | null, provider?: strin
 export function getTextProviderBaseUrl(config: AIConfig) {
   const provider = config.provider.toLowerCase()
 
-  if (provider === 'openai') {
+  if (['openai', 'xiaomi-token-plan-cn', 'xiaomi'].includes(provider)) {
     return joinProviderUrl(config.baseUrl, '/v1', '')
   }
 
