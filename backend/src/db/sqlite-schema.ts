@@ -343,6 +343,31 @@ export const stylePresetSeeds = [
     prompt: 'black and white manga illustration, high-contrast monochrome ink work, dynamic hatching and cross-hatching shading, bold solid blacks with dramatic negative space, screentone gray gradation, expressive confident ink linework, cinematic noir lighting, professional manga page quality, consistent character design across shots, strictly no color, avoid grayscale blur smudging, avoid painterly soft edges, avoid photorealism, avoid 3D render look',
     description: '黑白漫/ Noir 高对比墨水风',
   },
+  {
+    name: '水墨丹青', value: 'shuimo', sortOrder: 10,
+    prompt: 'traditional Chinese ink-wash painting (shuimohua) style, expressive elegant brushwork, layered xuan paper texture, atmospheric mountains and mist rendered with varied ink tones, restrained mineral and ink color accents, poetic negative space, soft diffused light, classical Chinese landscape composition, refined animation concept-art quality, consistent character design across shots, avoid flat digital gradients, avoid western comic inking, avoid photorealism, avoid plastic 3D rendering, avoid neon colors',
+    description: '留白、远山与水墨晕染的诗意古风',
+  },
+  {
+    name: '工笔重彩', value: 'gongbi', sortOrder: 11,
+    prompt: 'traditional Chinese gongbi meticulous painting style, precise fine-line contouring, elegant hanfu figures with graceful proportions, layered mineral pigments and delicate silk textures, ornate botanical and architectural details, controlled flat color planes with subtle shading, luminous warm studio light, museum-quality Chinese classical painting finish, consistent character design across shots, avoid loose sketchy brushwork, avoid watercolor bleeding, avoid photorealism, avoid western comic outlines, avoid modern clothing and props unless specified',
+    description: '细线勾勒、重彩设色的精致古典画风',
+  },
+  {
+    name: '敦煌壁画', value: 'dunhuang', sortOrder: 12,
+    prompt: 'Dunhuang mural art style from the Mogao Caves, graceful flying apsara-inspired movement, flowing ribbons and rhythmic decorative shapes, weathered mineral pigment texture on aged plaster, vermilion ochre lapis and malachite palette, symbolic cloud patterns and grotto motifs, warm sacred golden lighting, richly layered historical Chinese art atmosphere, cinematic illustration quality, consistent character design across shots, avoid glossy modern digital art, avoid photorealism, avoid plastic 3D rendering, avoid neon saturation, avoid western medieval motifs',
+    description: '飞天飘带与矿物重彩的敦煌壁画质感',
+  },
+  {
+    name: '宋韵古画', value: 'songhua', sortOrder: 13,
+    prompt: 'Northern Song dynasty Chinese classical painting style, refined literati atmosphere, delicate architectural and landscape details, elegant restrained figures in historically inspired hanfu, fine brush lines with light ink wash, muted celadon ochre and charcoal palette, calm natural daylight, balanced handscroll composition, sophisticated museum-grade historical illustration, consistent character design across shots, avoid wuxia exaggeration, avoid fantasy armor, avoid modern objects, avoid photorealism, avoid 3D CGI rendering, avoid saturated anime colors',
+    description: '清雅克制、宋画长卷般的古典美学',
+  },
+  {
+    name: '新中式古风', value: 'new-guofeng', sortOrder: 14,
+    prompt: 'contemporary Chinese guofeng illustration style, elegant hanfu-inspired costume design, flowing layered silhouettes and refined traditional accessories, clean expressive linework with softly rendered digital painting, subtle ink-wash motifs blended with modern cinematic composition, warm jade vermilion and antique gold palette, atmospheric moonlight and lantern glow, polished animated drama key-visual quality, consistent character design across shots, avoid generic fantasy armor, avoid western medieval styling, avoid photorealism, avoid plastic 3D look, avoid modern logos and casual clothing unless specified',
+    description: '适合短剧海报的现代国风与汉服美学',
+  },
 ]
 
 /**
