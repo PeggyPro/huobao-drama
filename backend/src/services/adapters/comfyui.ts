@@ -6,6 +6,7 @@
  * kept in ComfyUI's user/default/toonflow_api directory and selected by the
  * configured model name.
  */
+import { randomInt } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type {
@@ -150,6 +151,14 @@ function injectImageSize(workflow: Record<string, any>, size: string | null | un
   }
 }
 
+function randomizeImageSeed(workflow: Record<string, any>): void {
+  const sampler = Object.values(workflow).find((node: any) => (
+    node?.class_type === 'KSampler'
+      && typeof node.inputs?.seed === 'number'
+  )) as Record<string, any> | undefined
+  if (sampler) sampler.inputs.seed = randomInt(0, 2 ** 48 - 1)
+}
+
 function buildWorkflowPrompt(
   config: AIConfig,
   model: string | null | undefined,
@@ -280,6 +289,7 @@ export class ComfyUIImageAdapter extends ComfyUIAdapterBase implements ImageProv
       COMFYUI_IMAGE_WORKFLOW,
       process.env.COMFYUI_IMAGE_WORKFLOW,
     )
+    randomizeImageSeed(workflow)
     return this.buildRequest(config, workflow, `huobao-image-${record.id}`)
   }
 
