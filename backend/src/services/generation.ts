@@ -134,8 +134,11 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     : await getActiveConfig('video')
   if (!config) throw new Error('未配置视频模型，请先到「设置」页添加并启用 AI 服务')
 
-  const h3MotionContextEnabled = config.provider.toLowerCase() === 'comfyui'
-    && /minimax[_-]?h3/i.test(params.model || config.model)
+  const isComfyUI = config.provider.toLowerCase() === 'comfyui'
+  // Persist the actual noise seed before async preparation starts. A redraw is
+  // a new task; rebuilding this task keeps the same seed for reproducibility.
+  const seed = isComfyUI ? resolveComfyUIVideoSeed(params.seed) : params.seed
+  const h3MotionContextEnabled = isComfyUI && /minimax[_-]?h3/i.test(params.model || config.model)
   const id = await createTask('video', config, {
     storyboardId: params.storyboardId,
     dramaId: params.dramaId,
@@ -159,7 +162,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     aspectRatio: params.aspectRatio,
     // 统一存为项目内部格式，各适配器再转换为官方大小写与枚举。
     resolution: normalizeStoredVideoResolution(params.resolution),
-    seed: params.seed,
+    seed,
     promptExtend: params.promptExtend,
     watermark: params.watermark,
   })
@@ -171,11 +174,12 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     dramaId: params.dramaId,
     referenceMode: params.referenceMode || 'reference',
     duration: params.duration || 5,
+    seed,
   })
   logTaskPayload('VideoTask', 'enqueue params', {
     id,
     config: { provider: config.provider, model: config.model, baseUrl: config.baseUrl },
-    params,
+    params: { ...params, seed },
   })
   return id
 }
