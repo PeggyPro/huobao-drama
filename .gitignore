@@ -11,6 +11,8 @@ dist/
 *.swo
 *~
 .proxyai
+comfyui_workflows
+artifacts
 
 # Environment
 .env

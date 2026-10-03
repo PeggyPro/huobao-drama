@@ -66,13 +66,13 @@ test('missing history stays pending and execution failures retain the actual err
   assert.deepEqual(result, { status: 'failed', error: 'model missing' })
 })
 
-test('storyboard duration reaches Wan and H3 without mutating the workflow template', () => {
-  const build = (duration?: number) => comfyuiVideoAdapter.buildGenerateRequest(config, { id: 1, prompt: 'test', duration }).body.prompt
-  const twelve = build(12)
+test('storyboard duration reaches Wan and H3 without mutating the workflow template', async () => {
+  const build = async (duration?: number) => (await comfyuiVideoAdapter.buildGenerateRequest(config, { id: 1, prompt: 'test', duration })).body.prompt
+  const twelve = await build(12)
   assert.equal(twelve['7'].inputs.length, 289)
   assert.equal(twelve['133'].inputs.value, 12)
   for (const duration of [undefined, 0, NaN]) {
-    const defaults = build(duration)
+    const defaults = await build(duration)
     assert.equal(defaults['7'].inputs.length, 121)
     assert.equal(defaults['133'].inputs.value, 5)
   }

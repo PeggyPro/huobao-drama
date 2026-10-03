@@ -789,6 +789,43 @@
                       </button>
                     </div>
                     <div v-else class="video-bound-refs-empty">{{ t('episode.inspector.noBoundRefs') }}</div>
+                    <div v-if="videoReferenceHint" class="video-param-hint">{{ videoReferenceHint }}</div>
+                    <div v-if="(supportsVideoContinuity && previousContinuityShot) || selectedContinuityFrame || canUseMotionContext || selectedMotionContext" class="video-continuity-control">
+                      <div class="video-inspector-prompt-head">
+                        <span class="video-inspector-label">镜头接续</span>
+                        <div class="video-continuity-actions">
+                          <button v-if="canUsePreviousFrame" type="button" class="btn btn-sm"
+                            :disabled="continuityLoadingIds.includes(selectedSb.id)"
+                            @click="usePreviousVideoFrame(selectedSb)">
+                            <Loader2 v-if="continuityLoadingIds.includes(selectedSb.id)" :size="11" class="animate-spin" />
+                            {{ continuityLoadingIds.includes(selectedSb.id) ? '提取中…' : '上一镜头尾帧' }}
+                          </button>
+                          <button v-if="canUseMotionContext" type="button" class="btn btn-sm"
+                            @click="usePreviousMotionContext(selectedSb)">
+                            H3 latent 无缝续接
+                          </button>
+                        </div>
+                      </div>
+                      <div v-if="selectedContinuityFrame" class="video-continuity-frame">
+                        <button type="button" class="video-continuity-thumb" title="查看接续首帧"
+                          @click="openImageViewer(assetImageSrc({ imageUrl: selectedContinuityFrame.firstFrameUrl }), '接续首帧')">
+                          <img :src="assetImageSrc({ imageUrl: selectedContinuityFrame.firstFrameUrl })" alt="上一分镜尾帧" />
+                        </button>
+                        <div>
+                          <div class="video-param-hint">上一镜头尾帧作为本镜头首帧</div>
+                          <button type="button" class="btn btn-sm" :disabled="continuityLoadingIds.includes(selectedSb.id)"
+                            @click="clearContinuityFrame(selectedSb)">移除尾帧</button>
+                        </div>
+                      </div>
+                      <div v-else-if="selectedMotionContext" class="video-continuity-frame">
+                        <div class="video-continuity-context-badge">H3</div>
+                        <div>
+                          <div class="video-param-hint">第 {{ selectedMotionContext.sourceStoryboardNumber }} 镜头的音视频 latent context</div>
+                          <button type="button" class="btn btn-sm" @click="clearMotionContext(selectedSb)">移除 latent 续接</button>
+                        </div>
+                      </div>
+                      <div v-else class="video-param-hint">{{ canUseMotionContext ? 'H3 latent 续接会沿用上一镜头的动作和声音；来源镜头需在接入该功能后重新生成。' : canUsePreviousFrame ? '尾帧模式会将上一镜头最后画面作为本镜头首帧。' : '上一镜头完成视频生成后可选择接续。' }}</div>
+                    </div>
                   </section>
                 </div>
 
@@ -1937,8 +1974,13 @@ function isPendingSceneImage(id) {
   return pendingSceneImageIds.value.includes(id)
 }
 
+function hasProcessingVideoTask(id) {
+  return genTasks.value.some(task => task.type === 'video' && task.status === 'processing'
+    && String(task.storyboard_id) === String(id))
+}
+
 function isPendingVideo(id) {
-  return pendingVideoIds.value.includes(id)
+  return pendingVideoIds.value.includes(id) || hasProcessingVideoTask(id)
 }
 
 function videoFailMessage(id) {
@@ -1952,8 +1994,8 @@ function videoModerationHint(msg) {
 }
 
 function videoTaskState(sb) {
-  if (hasVid(sb)) return 'done'
   if (isPendingVideo(sb?.id)) return 'pending'
+  if (hasVid(sb)) return 'done'
   if (videoFailMessage(sb?.id)) return 'failed'
   return 'ready'
 }
@@ -2129,6 +2171,37 @@ const effectiveVideoModelLabel = computed(() => {
   if (explicit) return explicit
   return configModels(selectedVideoConfig.value)[0] || ''
 })
+const isComfyuiVideo = computed(() => selectedVideoConfig.value?.provider === 'comfyui')
+const isComfyuiWanVideo = computed(() => isComfyuiVideo.value
+  && /wan[._-]?2[._-]?2.*5b/i.test(effectiveVideoModelLabel.value))
+const isComfyuiH3Video = computed(() => isComfyuiVideo.value
+  && /minimax[_-]?h3/i.test(effectiveVideoModelLabel.value))
+// 仅本页显式选择后生效，不改变分镜素材绑定，也不自动串行生成。
+const continuityFrames = ref({})
+const motionContextSources = ref({})
+const continuityLoadingIds = ref([])
+const supportsVideoContinuity = computed(() => isComfyuiWanVideo.value || isComfyuiH3Video.value)
+const selectedContinuityFrame = computed(() => continuityFrames.value[selectedSb.value?.id] || null)
+const selectedMotionContext = computed(() => motionContextSources.value[selectedSb.value?.id] || null)
+const previousContinuityShot = computed(() => getPreviousStoryboard(selectedSb.value))
+const canUsePreviousFrame = computed(() => supportsVideoContinuity.value
+  && !!getVideoUrl(previousContinuityShot.value)
+  && !isPendingVideo(previousContinuityShot.value?.id)
+  && !isPendingVideo(selectedSb.value?.id))
+const canUseMotionContext = computed(() => isComfyuiH3Video.value
+  && !!getVideoUrl(previousContinuityShot.value)
+  && !isPendingVideo(previousContinuityShot.value?.id)
+  && !isPendingVideo(selectedSb.value?.id))
+const videoReferenceHint = computed(() => {
+  if (selectedMotionContext.value && isComfyuiH3Video.value) return 'H3 Motion Context：沿用上一分镜的音视频 latent 动作上下文，同时保留本镜头绑定的角色、场景和道具参考图。'
+  if (selectedMotionContext.value && !isComfyuiH3Video.value) return '当前模型不是 H3，无法使用 Motion Context；请选择 H3 或移除 latent 续接。'
+  if (selectedContinuityFrame.value && isComfyuiWanVideo.value) return 'Wan2.2 5B 接续模式：以上一分镜尾帧作为唯一首帧，沿用画面中的人物与场景；本次不使用单独绑定的设定图。'
+  if (selectedContinuityFrame.value && isComfyuiH3Video.value) return 'H3 接续模式：使用上一分镜尾帧作为首帧，同时保留最多 9 张独立参考图及 @名字 对应。'
+  if (selectedContinuityFrame.value && !supportsVideoContinuity.value) return '当前模型不支持此接续首帧，请切换回 ComfyUI H3 / Wan2.2 5B，或移除首帧后独立生成。'
+  if (isComfyuiWanVideo.value) return 'Wan2.2 5B 仅支持 1 张首帧图；绑定的设定图会成为第一帧，建议使用包含人物与场景的完整镜头画面。多参考图请切换到 H3。'
+  if (isComfyuiH3Video.value) return 'H3 支持最多 9 张独立参考图，角色、场景和道具按提示词中的 @名字 对应。'
+  return ''
+})
 const episodeResolutionLabel = computed(() =>
   resolutionOptions.value.find(o => o.key === episodeResolution.value)?.model || episodeResolution.value)
 // 短档位标签（480p / 768P / 2K 等厂商原生档位），用于底部生效配置小结
@@ -2141,6 +2214,7 @@ const batchVideoTotalDuration = computed(() =>
 function openBatchVideoConfirm(pool) {
   const targets = pool.filter(s => !isPendingVideo(s.id))
   if (!targets.length) { toast.info(t('episode.vid.noneToGenerate')); return }
+  if (!validateVideoReferences(targets)) return
   batchVideoConfirm.value = { open: true, targets }
 }
 function batchVideos() {
@@ -2156,16 +2230,15 @@ function retryFailedVideos() {
 }
 function confirmBatchVideos() {
   const targets = [...batchVideoConfirm.value.targets]
+  if (!targets.length || !validateVideoReferences(targets)) return
   batchVideoConfirm.value = { open: false, targets: [] }
-  if (!targets.length) return
   const ids = targets.map(s => s.id)
   targets.forEach(sb => genVid(sb, { silent: true }))
   toast.success(t('episode.vid.batchStarted', { n: ids.length }))
   watchAsyncResult(() => ids.every(id => {
     const target = sbs.value.find(s => s.id === id)
-    const done = !!getVideoUrl(target)
-    if (done) pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== id)
-    return done
+    // 重生成期间保留的旧视频不能证明本次任务已完成。
+    return !isPendingVideo(id) && !!getVideoUrl(target)
   }), 80, 4000)
   if (videoSelectMode.value) toggleVideoSelectMode()
 }
@@ -2213,11 +2286,12 @@ async function loadGenTasks() {
     // 永不消退(videoTaskState 中 pending 优先于 failed,重试按钮还被禁用)
     const pending = new Set()
     const failed = {}
-    for (const [sbId, t] of latestBySb) {
-      // 分镜已有视频(失败后重试成功)时不再报历史错误
-      if (hasVid(sbs.value.find(s => s.id === sbId))) continue
-      if (t.status === 'processing') pending.add(sbId)
-      else if (t.status === 'failed') failed[sbId] = t.error_msg || t('episode.status.failed')
+    for (const [sbId, task] of latestBySb) {
+      // 重生成仍可能保留旧视频；先恢复正在处理的任务，再忽略历史失败。
+      if (task.status === 'processing') pending.add(sbId)
+      else if (!hasVid(sbs.value.find(s => s.id === sbId)) && task.status === 'failed') {
+        failed[sbId] = task.error_msg || t('episode.status.failed')
+      }
     }
     // 刚点击提交、任务记录尚未加载出来的本地状态保留,避免状态闪退
     for (const id of pendingVideoIds.value) if (!latestBySb.has(id)) pending.add(id)
@@ -3033,11 +3107,117 @@ function formatHistoryTime(iso) {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+function getPreviousStoryboard(sb) {
+  if (!sb) return null
+  const current = sbs.value.find(item => String(item.id) === String(sb.id)) || sb
+  const episodeId = current.episode_id ?? current.episodeId ?? epId.value
+  const number = Number(current.storyboard_number ?? current.storyboardNumber)
+  if (!Number.isFinite(number)) return null
+  return sbs.value.filter(item => String(item.episode_id ?? item.episodeId ?? epId.value) === String(episodeId)
+    && Number(item.storyboard_number ?? item.storyboardNumber) < number)
+    .sort((a, b) => Number(b.storyboard_number ?? b.storyboardNumber) - Number(a.storyboard_number ?? a.storyboardNumber))[0] || null
+}
+
+function continuityFrameError(sb) {
+  if (continuityLoadingIds.value.includes(sb.id)) return '接续首帧正在提取，请完成后再生成。'
+  const frame = continuityFrames.value[sb.id]
+  if (!frame) return ''
+  if (!supportsVideoContinuity.value) return '当前模型不支持接续首帧，请切换到 ComfyUI H3 / Wan2.2 5B，或移除首帧。'
+  const previous = getPreviousStoryboard(sb)
+  if (!previous || String(previous.id) !== String(frame.sourceStoryboardId)
+    || !getVideoUrl(previous) || isPendingVideo(previous.id)
+    || getVideoUrl(previous) !== frame.sourceVideoUrl) {
+    return '上一分镜的视频或顺序已变化，请在上一分镜完成后重新选择接续尾帧，或移除首帧。'
+  }
+  return ''
+}
+
+async function usePreviousVideoFrame(sb) {
+  if (!sb || continuityLoadingIds.value.includes(sb.id)) return
+  const previous = getPreviousStoryboard(sb)
+  if (!supportsVideoContinuity.value || !previous || !getVideoUrl(previous)
+    || isPendingVideo(previous.id) || isPendingVideo(sb.id)) {
+    toast.error('接续需要选择 ComfyUI H3 / Wan2.2 5B，并先完成上一分镜的视频生成。')
+    return
+  }
+  const sourceVideoUrl = getVideoUrl(previous)
+  continuityLoadingIds.value.push(sb.id)
+  try {
+    const result = await api.post(`/storyboards/${sb.id}/continuity-frame`)
+    const currentPrevious = getPreviousStoryboard(sb)
+    if (typeof result?.first_frame_url !== 'string' || !result.first_frame_url.trim()
+      || String(result.source_storyboard_id) !== String(previous.id)
+      || result.source_video_url !== sourceVideoUrl
+      || !currentPrevious || String(currentPrevious.id) !== String(previous.id)
+      || getVideoUrl(currentPrevious) !== sourceVideoUrl || isPendingVideo(currentPrevious.id)) {
+      throw new Error('上一分镜已变化或未返回有效尾帧，请重新提取。')
+    }
+    continuityFrames.value = { ...continuityFrames.value, [sb.id]: {
+      firstFrameUrl: result.first_frame_url.trim(),
+      sourceStoryboardId: result.source_storyboard_id,
+      sourceStoryboardNumber: result.source_storyboard_number,
+      sourceVideoUrl: result.source_video_url,
+    } }
+  } catch (e) {
+    toastError(e)
+  } finally {
+    continuityLoadingIds.value = continuityLoadingIds.value.filter(id => id !== sb.id)
+  }
+}
+
+function motionContextError(sb) {
+  const context = motionContextSources.value[sb?.id]
+  if (!context) return ''
+  if (!isComfyuiH3Video.value) return '当前模型不是 ComfyUI H3，无法使用 H3 Motion Context，请切换模型或移除 latent 续接。'
+  const previous = getPreviousStoryboard(sb)
+  if (!previous || String(previous.id) !== String(context.sourceStoryboardId)
+    || !getVideoUrl(previous) || isPendingVideo(previous.id)
+    || getVideoUrl(previous) !== context.sourceVideoUrl) {
+    return 'Motion Context 的来源镜头已变化，请重新选择上一镜头，或移除 latent 续接。'
+  }
+  return ''
+}
+
+function usePreviousMotionContext(sb) {
+  if (!sb || !canUseMotionContext.value) {
+    toast.error('H3 Motion Context 需要先完成上一分镜，并使用 ComfyUI MiniMax H3。')
+    return
+  }
+  const previous = getPreviousStoryboard(sb)
+  if (!previous || !getVideoUrl(previous)) return
+  const nextFrames = { ...continuityFrames.value }
+  delete nextFrames[sb.id]
+  continuityFrames.value = nextFrames
+  motionContextSources.value = {
+    ...motionContextSources.value,
+    [sb.id]: {
+      sourceStoryboardId: previous.id,
+      sourceStoryboardNumber: previous.storyboard_number ?? previous.storyboardNumber,
+      sourceVideoUrl: getVideoUrl(previous),
+    },
+  }
+}
+
+function clearMotionContext(sb) {
+  const next = { ...motionContextSources.value }
+  delete next[sb.id]
+  motionContextSources.value = next
+}
+
+function clearContinuityFrame(sb) {
+  const next = { ...continuityFrames.value }
+  delete next[sb.id]
+  continuityFrames.value = next
+}
+
 function getShotReferenceImages(sb) {
   const refs = []
+  // ComfyUI 必须先保留完整列表，再明确校验工作流能力，不能悄悄丢弃绑定图。
+  const limit = isComfyuiVideo.value ? Infinity : refImageLimit.value
   const pushRef = (value) => {
-    if (!value || refs.includes(value) || refs.length >= refImageLimit.value) return
-    refs.push(value)
+    const url = typeof value === 'string' ? value.trim() : ''
+    if (!url || refs.includes(url) || refs.length >= limit) return
+    refs.push(url)
   }
   const scene = getStoryboardScene(sb)
   pushRef(scene?.image_url || scene?.imageUrl)
@@ -3048,6 +3228,50 @@ function getShotReferenceImages(sb) {
     pushRef(prop?.image_url || prop?.imageUrl)
   }
   return refs
+}
+
+function validateVideoReferences(targets) {
+  for (const sb of targets) {
+    const frame = continuityFrames.value[sb.id]
+    const motionContext = motionContextSources.value[sb.id]
+    let error = motionContextError(sb) || continuityFrameError(sb)
+    if (!error && frame && motionContext) {
+      error = '尾帧接续和 H3 Motion Context 只能选择一种，请移除其中一种后再生成。'
+    }
+    if (!error && motionContext && targets.some(target => String(target.id) === String(motionContext.sourceStoryboardId))) {
+      error = '批量任务包含 Motion Context 的来源分镜，请先完成上一分镜，再生成接续镜头。'
+    }
+    if (!error && frame && targets.some(target => String(target.id) === String(frame.sourceStoryboardId))) {
+      error = '批量任务包含接续首帧的来源分镜，请先完成上一分镜，再重新选择尾帧生成接续镜头。'
+    }
+    // Wan 显式接续时只使用尾帧中的完整画面，保留绑定关系供其他模式使用。
+    if (!error && isComfyuiVideo.value && !(isComfyuiWanVideo.value && frame)) {
+      // 使用包含旁白的完整角色列表校验绑定；旁白无需参与后续画面参考图检查。
+      const unavailable = [
+        ...getStoryboardCharacterIds(sb).filter(id => !chars.value.some(char => char.id === id)).map(id => `角色 #${id}`),
+        ...getStoryboardPropIds(sb).filter(id => !propItems.value.some(prop => prop.id === id)).map(id => `道具 #${id}`),
+      ]
+      const sceneId = sb.scene_id || sb.sceneId
+      if (sceneId && !getStoryboardScene(sb)) unavailable.push(`场景 #${sceneId}`)
+      const refs = getShotReferenceImages(sb)
+      if (unavailable.length) {
+        error = `绑定素材「${unavailable.join('、')}」已删除或未加载，请刷新素材并检查分镜绑定后再生成。`
+      } else if (isComfyuiWanVideo.value && refs.length > 1) {
+        error = `Wan2.2 5B 只支持 1 张首帧图，当前绑定了 ${refs.length} 张参考图。请只保留一张包含完整镜头画面的图片，或切换到支持多参考图的 H3。`
+      } else if (isComfyuiH3Video.value && refs.length > 9) {
+        error = `H3 最多支持 9 张独立参考图，当前绑定了 ${refs.length} 张。请减少绑定图片后再生成。`
+      } else {
+        const missing = shotBindableAssets(sb).filter(asset => asset.bound
+          && (typeof asset.imageUrl !== 'string' || !asset.imageUrl.trim()))
+        if (missing.length) error = `绑定素材「${missing.map(asset => asset.name).join('、')}」尚无可用图片，请先生成或上传图片，或解除绑定后再生成。`
+      }
+    }
+    if (error) {
+      toast.error(`分镜 ${sb.storyboard_number ?? sb.storyboardNumber ?? sb.id}：${error}`)
+      return false
+    }
+  }
+  return true
 }
 
 // 右侧参考素材面板：本集全部可绑定素材（场景单选、角色/道具多选），bound 标记是否已绑定
@@ -3163,12 +3387,12 @@ const mentionOptions = computed(() => {
 
 // 按参考图顺序（场景图在前、角色图居中、道具图在后）为 @名字 建立索引映射，供视频提示词引用替换
 function getShotReferenceIndexMap(sb) {
-  const ordered = []
-  const seen = new Set()
-  const push = (name, url) => {
-    if (!url || seen.has(url) || ordered.length >= refImageLimit.value) return
-    seen.add(url)
-    ordered.push({ name, imageUrl: url })
+  const refs = getShotReferenceImages(sb)
+  const nameToIndex = {}
+  const push = (name, value) => {
+    const url = typeof value === 'string' ? value.trim() : ''
+    const index = refs.indexOf(url)
+    if (name && index >= 0 && !(name in nameToIndex)) nameToIndex[name] = index + 1
   }
   const scene = getStoryboardScene(sb)
   push(scene?.location || '', scene?.image_url || scene?.imageUrl)
@@ -3178,14 +3402,14 @@ function getShotReferenceIndexMap(sb) {
   for (const prop of getStoryboardProps(sb)) {
     push(prop.name || '', prop?.image_url || prop?.imageUrl)
   }
-  const nameToIndex = {}
-  ordered.forEach((a, i) => { if (a.name && !(a.name in nameToIndex)) nameToIndex[a.name] = i + 1 })
   return nameToIndex
 }
 
 // 将视频提示词里的 @名字 替换为 @图片N名字（N 为参考图序号，1 起），生成时使用
 function resolveVideoPromptRefs(sb) {
   const prompt = sb.video_prompt || sb.videoPrompt || ''
+  // Wan 的图片是首帧，不是按编号指代的主体参考图。
+  if (isComfyuiWanVideo.value) return prompt.replace(/@图片\d+/g, '@')
   const map = getShotReferenceIndexMap(sb)
   const names = Object.keys(map).sort((a, b) => b.length - a.length)
   if (!names.length) return prompt
@@ -3252,8 +3476,12 @@ function uploadAssetImage(kind, id) {
 }
 
 async function genVid(sb, opts = {}) {
+  if (!validateVideoReferences([sb])) return
   const referenceImages = getShotReferenceImages(sb)
-  // 参考素材完全来自分镜绑定的角色/场景/道具图片
+  const motionContext = motionContextSources.value[sb.id]
+  const firstFrameUrl = motionContext ? undefined : (continuityFrames.value[sb.id]?.firstFrameUrl
+    || (isComfyuiWanVideo.value ? referenceImages[0] : undefined))
+  // 主体参考图来自分镜素材；接续首帧和 Motion Context 都只来自用户显式选择。
   const params = {
     storyboard_id: sb.id,
     drama_id: dramaId,
@@ -3263,19 +3491,25 @@ async function genVid(sb, opts = {}) {
     generate_audio: true,
     model: bareModelName(videoModel.value) || undefined,
     config_id: ownerConfigId(videoModelOptions.value, videoModel.value),
-    reference_image_urls: referenceImages,
+    reference_image_urls: isComfyuiWanVideo.value ? [] : referenceImages,
+    ...(motionContext ? {
+      continuity_mode: 'motion_context',
+      continuity_source_storyboard_id: motionContext.sourceStoryboardId,
+    } : {}),
+    ...(firstFrameUrl ? { first_frame_url: firstFrameUrl } : {}),
   }
-  if (!params.prompt && !referenceImages.length) {
+  if (!params.prompt && !referenceImages.length && !firstFrameUrl) {
     toast.error(t('episode.vid.needRefOrPrompt'))
     return
   }
+  const sourceVideoUrl = getVideoUrl(sb)
   try {
     delete failedVideoMessages.value[sb.id]
     if (!isPendingVideo(sb.id)) pendingVideoIds.value.push(sb.id)
     const generation = await taskAPI.generate({ type: 'video', ...params })
     if (!opts.silent) toast.success(t('episode.vid.generating'))
     await refresh()
-    pollVideoGeneration(generation?.id, sb.id)
+    pollVideoGeneration(generation?.id, sb.id, sourceVideoUrl)
   } catch (e) {
     pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== sb.id)
     failedVideoMessages.value = {
@@ -3285,11 +3519,14 @@ async function genVid(sb, opts = {}) {
     toastError(e, { fallback: 'episode.vid.genFailed' })
   }
 }
-async function pollVideoGeneration(generationId, storyboardId) {
+async function pollVideoGeneration(generationId, storyboardId, sourceVideoUrl = '') {
   if (!generationId) {
     watchAsyncResult(() => {
       const target = sbs.value.find(s => s.id === storyboardId)
-      const done = !!(target?.video_url || target?.videoUrl)
+      const currentVideoUrl = getVideoUrl(target)
+      const done = !!currentVideoUrl
+        && (!sourceVideoUrl || currentVideoUrl !== sourceVideoUrl)
+        && !hasProcessingVideoTask(storyboardId)
       if (done) pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
       return done
     }, 60, 4000)
@@ -5181,6 +5418,13 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
 }
 .video-bound-ref-empty { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
 .video-bound-refs-empty { padding: 10px; border: 1px dashed var(--surface-outline); border-radius: var(--radius); color: var(--text-3); font-size: 11px; line-height: 1.5; }
+.video-continuity-control { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--surface-outline); }
+.video-continuity-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.video-continuity-frame { display: flex; align-items: center; gap: 10px; }
+.video-continuity-context-badge { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--accent); border-radius: var(--radius); color: var(--accent); font: 700 12px var(--font-mono); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.video-continuity-frame > div { display: grid; gap: 6px; justify-items: start; }
+.video-continuity-thumb { width: 88px; aspect-ratio: 16 / 9; flex-shrink: 0; padding: 0; border: 1px solid var(--surface-outline); border-radius: var(--radius); overflow: hidden; background: var(--bg-2); cursor: pointer; }
+.video-continuity-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .video-param-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; white-space: nowrap; }
 .video-param-name { color: var(--text-1); font-weight: 600; flex-shrink: 0; }
 .video-param-value { color: var(--text-1); text-align: right; font-size: 11px; }

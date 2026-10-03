@@ -210,7 +210,7 @@ export const sysTask = sqliteTable('sys_task', {
   prompt: text('prompt'),
   model: text('model'),
   // image: {size, frameType, referenceImages[]}
-  // video: {referenceMode, firstFrameUrl, lastFrameUrl, referenceImageUrls[], referenceVideoUrls[], referenceAudioUrls[], referenceFileUrl, referenceLinkUrl, generateAudio, duration, aspectRatio, resolution, seed, promptExtend, watermark}
+  // video: {referenceMode, firstFrameUrl, lastFrameUrl, referenceImageUrls[], referenceVideoUrls[], referenceAudioUrls[], referenceFileUrl, referenceLinkUrl, continuityMode, continuitySourceStoryboardId, h3_motion_context_version, generateAudio, duration, aspectRatio, resolution, seed, promptExtend, watermark}
   params: text('params'),
   taskId: text('task_id'),
   resultUrl: text('result_url'),

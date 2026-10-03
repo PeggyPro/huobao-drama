@@ -46,6 +46,8 @@ interface GenerateVideoParams {
   firstFrameUrl?: string
   lastFrameUrl?: string
   referenceImageUrls?: string[]
+  continuityMode?: 'motion_context'
+  continuitySourceStoryboardId?: number
   referenceVideoUrls?: string[]
   referenceAudioUrls?: string[]
   referenceFileUrl?: string
@@ -105,6 +107,8 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     : await getActiveConfig('video')
   if (!config) throw new Error('未配置视频模型，请先到「设置」页添加并启用 AI 服务')
 
+  const h3MotionContextEnabled = config.provider.toLowerCase() === 'comfyui'
+    && /minimax[_-]?h3/i.test(params.model || config.model)
   const id = await createTask('video', config, {
     storyboardId: params.storyboardId,
     dramaId: params.dramaId,
@@ -112,10 +116,13 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     model: params.model || config.model,
   }, {
     referenceMode: params.referenceMode || 'reference',
+    h3_motion_context_version: h3MotionContextEnabled ? 1 : undefined,
     imageUrl: params.imageUrl,
     firstFrameUrl: params.firstFrameUrl,
     lastFrameUrl: params.lastFrameUrl,
     referenceImageUrls: params.referenceImageUrls,
+    continuityMode: params.continuityMode,
+    continuitySourceStoryboardId: params.continuitySourceStoryboardId,
     referenceVideoUrls: params.referenceVideoUrls,
     referenceAudioUrls: params.referenceAudioUrls,
     referenceFileUrl: params.referenceFileUrl,
@@ -218,16 +225,21 @@ async function processTask(id: number, config: AIConfig) {
       }))
     } else {
       const adapter = getVideoAdapter(config.provider)
-      const resolvedImageUrl = await normalizeVideoReferenceUrl(params.imageUrl)
-      const resolvedFirstFrameUrl = await normalizeVideoReferenceUrl(params.firstFrameUrl)
-      const resolvedLastFrameUrl = await normalizeVideoReferenceUrl(params.lastFrameUrl)
-      const resolvedReferenceImageUrls = await normalizeVideoReferenceUrls(params.referenceImageUrls)
-      // 参考视频/音频文件较大，不适合 dataURL 内联，需解析为公网可访问 URL
-      const resolvedReferenceVideoUrls = resolvePublicMediaUrls(params.referenceVideoUrls, 'video')
-      const resolvedReferenceAudioUrls = resolvePublicMediaUrls(params.referenceAudioUrls, 'audio')
-      const resolvedReferenceFileUrl = resolvePublicMediaUrl(params.referenceFileUrl, 'file')
-      ;({ url, method, headers, body } = adapter.buildGenerateRequest(config, {
+      // ComfyUI reads and uploads the original assets itself. Preserve positions
+      // and missing URLs so a broken image cannot silently shift @图片N bindings.
+      const localReferences = adapter.provider === 'comfyui'
+      const resolvedImageUrl = localReferences ? params.imageUrl : await normalizeVideoReferenceUrl(params.imageUrl)
+      const resolvedFirstFrameUrl = localReferences ? params.firstFrameUrl : await normalizeVideoReferenceUrl(params.firstFrameUrl)
+      const resolvedLastFrameUrl = localReferences ? params.lastFrameUrl : await normalizeVideoReferenceUrl(params.lastFrameUrl)
+      const resolvedReferenceImageUrls = localReferences ? (params.referenceImageUrls || []) : await normalizeVideoReferenceUrls(params.referenceImageUrls)
+      // Cloud providers need public media URLs; ComfyUI reports unsupported
+      // reference video/audio explicitly instead of silently dropping them.
+      const resolvedReferenceVideoUrls = localReferences ? (params.referenceVideoUrls || []) : resolvePublicMediaUrls(params.referenceVideoUrls, 'video')
+      const resolvedReferenceAudioUrls = localReferences ? (params.referenceAudioUrls || []) : resolvePublicMediaUrls(params.referenceAudioUrls, 'audio')
+      const resolvedReferenceFileUrl = localReferences ? params.referenceFileUrl : resolvePublicMediaUrl(params.referenceFileUrl, 'file')
+      ;({ url, method, headers, body } = await adapter.buildGenerateRequest(config, {
         id: record.id,
+        storyboardId: record.storyboardId,
         model: record.model,
         prompt: record.prompt,
         referenceMode: params.referenceMode,
@@ -235,6 +247,8 @@ async function processTask(id: number, config: AIConfig) {
         firstFrameUrl: resolvedFirstFrameUrl,
         lastFrameUrl: resolvedLastFrameUrl,
         referenceImageUrls: resolvedReferenceImageUrls.length ? JSON.stringify(resolvedReferenceImageUrls) : null,
+        continuityMode: params.continuityMode,
+        continuitySourceStoryboardId: params.continuitySourceStoryboardId,
         referenceVideoUrls: resolvedReferenceVideoUrls.length ? JSON.stringify(resolvedReferenceVideoUrls) : null,
         referenceAudioUrls: resolvedReferenceAudioUrls.length ? JSON.stringify(resolvedReferenceAudioUrls) : null,
         referenceFileUrl: resolvedReferenceFileUrl,

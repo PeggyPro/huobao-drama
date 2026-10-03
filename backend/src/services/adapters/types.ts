@@ -48,7 +48,7 @@ export interface ImageProviderAdapter {
 export interface VideoProviderAdapter {
   provider: string
 
-  buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): ProviderRequest
+  buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): ProviderRequest | Promise<ProviderRequest>
 
   parseGenerateResponse(result: any, config?: AIConfig): VideoGenResponse
 
@@ -92,6 +92,7 @@ export interface ImageGenerationRecord {
 
 export interface VideoGenerationRecord {
   id: number
+  storyboardId?: number | null
   model?: string | null
   prompt?: string | null
   referenceMode?: string | null
@@ -103,6 +104,8 @@ export interface VideoGenerationRecord {
   referenceAudioUrls?: string | null
   referenceFileUrl?: string | null
   referenceLinkUrl?: string | null
+  continuityMode?: 'motion_context' | null
+  continuitySourceStoryboardId?: number | null
   generateAudio?: number | boolean | null
   duration?: number | null
   aspectRatio?: string | null

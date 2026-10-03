@@ -9,6 +9,7 @@
 import { randomInt } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { injectComfyUIVideoReferences } from './comfyui-reference.js'
 import type {
   AIConfig,
   ImageGenResponse,
@@ -151,6 +152,24 @@ function injectImageSize(workflow: Record<string, any>, size: string | null | un
   }
 }
 
+function injectVideoDuration(workflow: Record<string, any>, duration: number | null | undefined): void {
+  const seconds = Number(duration)
+  if (!Number.isFinite(seconds) || seconds <= 0) return
+
+  for (const node of Object.values(workflow) as Record<string, any>[]) {
+    if (node?.class_type === 'PrimitiveFloat' && /duration/i.test(String(node._meta?.title || ''))) {
+      node.inputs.value = Math.max(1, seconds)
+    }
+
+    // Wan22ImageToVideoLatent accepts lengths of 1 + 4n frames. Keep the
+    // workflow's 24fps convention while honoring the storyboard duration.
+    if (node?.class_type === 'Wan22ImageToVideoLatent' && typeof node.inputs?.length === 'number') {
+      const frameQuanta = Math.max(1, Math.round((seconds * 24) / 4))
+      node.inputs.length = 1 + frameQuanta * 4
+    }
+  }
+}
+
 function randomizeImageSeed(workflow: Record<string, any>): void {
   const sampler = Object.values(workflow).find((node: any) => (
     node?.class_type === 'KSampler'
@@ -190,7 +209,11 @@ function historyEntry(result: any): Record<string, any> | null {
   return (entries[0] as Record<string, any> | undefined) || null
 }
 
-function outputFile(entry: Record<string, any>, keys: string[]): Record<string, any> | null {
+function outputFile(
+  entry: Record<string, any>,
+  keys: string[],
+  accept: (file: Record<string, any>) => boolean = () => true,
+): Record<string, any> | null {
   const outputs = entry.outputs
   if (!outputs || typeof outputs !== 'object') return null
   let fallback: Record<string, any> | null = null
@@ -198,7 +221,7 @@ function outputFile(entry: Record<string, any>, keys: string[]): Record<string, 
     for (const key of keys) {
       const files = output?.[key]
       if (!Array.isArray(files)) continue
-      const validFiles = files.filter((file: any) => file?.filename)
+      const validFiles = files.filter((file: any) => file?.filename && accept(file))
       const saved = validFiles.find((file: any) => file.type === 'output')
       if (saved) return saved
       if (!fallback && validFiles[0]) fallback = validFiles[0]
@@ -233,16 +256,29 @@ function parseHistoryImage(result: any, config?: AIConfig): ImagePollResponse {
   return { status: 'completed', imageUrl: viewUrl(config, file) }
 }
 
+function isVideoFile(file: Record<string, any> | null): boolean {
+  if (!file?.filename) return false
+  return /\.(?:mp4|webm|mov|m4v|mkv|avi)$/i.test(String(file.filename))
+}
+
+function videoOutputFile(entry: Record<string, any>): Record<string, any> | null {
+  const videoOutput = outputFile(entry, ['videos', 'gifs', 'video'])
+  if (videoOutput) return videoOutput
+
+  // Some ComfyUI SaveVideo versions expose the saved video under `images`
+  // even when the filename is an MP4/WebM. Treat the file type as the source
+  // of truth so a valid video is not reported as an image.
+  return outputFile(entry, ['images'], isVideoFile)
+}
+
 function parseHistoryVideo(result: any, config?: AIConfig): VideoPollResponse {
   const entry = historyEntry(result)
   if (!entry) return { status: 'pending' }
   const status = historyStatus(entry)
   if (status === 'failed') return { status, error: errorMessage(entry) }
   if (status !== 'completed') return { status }
-  const file = outputFile(entry, ['videos', 'gifs', 'video'])
+  const file = videoOutputFile(entry)
   if (!file || !config) {
-    // The named double-sampling workflow currently ends in SaveImage. Fail
-    // clearly instead of storing a PNG in Huobao's video column.
     const imageOutput = outputFile(entry, ['images'])
     return imageOutput
       ? { status: 'failed', error: 'ComfyUI workflow returned image output, not a video output' }
@@ -317,7 +353,7 @@ export class ComfyUIImageAdapter extends ComfyUIAdapterBase implements ImageProv
 export class ComfyUIVideoAdapter extends ComfyUIAdapterBase implements VideoProviderAdapter {
   provider = 'comfyui'
 
-  buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): ProviderRequest {
+  async buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): Promise<ProviderRequest> {
     const workflow = buildWorkflowPrompt(
       config,
       record.model || config.model,
@@ -326,6 +362,9 @@ export class ComfyUIVideoAdapter extends ComfyUIAdapterBase implements VideoProv
       COMFYUI_VIDEO_WORKFLOW,
       process.env.COMFYUI_VIDEO_WORKFLOW,
     )
+    injectVideoDuration(workflow, record.duration)
+    const prompt = await injectComfyUIVideoReferences(config, record, workflow)
+    injectPrompt(workflow, prompt)
     return this.buildRequest(config, workflow, `huobao-video-${record.id}`)
   }
 

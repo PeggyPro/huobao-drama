@@ -4,6 +4,7 @@ import { db, getInsertId, schema } from '../db/index.js'
 import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { getStoryboardContinuityFrame } from '../services/storyboard-continuity.js'
 
 const app = new Hono()
 
@@ -112,6 +113,17 @@ app.post('/', async (c) => {
     character_ids: await getStoryboardCharacterIds(result.id),
     prop_ids: await getStoryboardPropIds(result.id),
   })
+})
+
+// Extract the preceding shot's tail for an explicit, optional continuation.
+app.post('/:id/continuity-frame', async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!Number.isSafeInteger(id) || id <= 0) return badRequest(c, '分镜 ID 无效')
+  try {
+    return success(c, await getStoryboardContinuityFrame(id))
+  } catch (error) {
+    return badRequest(c, (error as Error).message)
+  }
 })
 
 // PUT /storyboards/:id

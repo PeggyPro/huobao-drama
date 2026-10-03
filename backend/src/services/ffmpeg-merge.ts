@@ -101,6 +101,9 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   fs.mkdirSync(outputDir, { recursive: true })
   const outputFilename = `${uuid()}.mp4`
   const outputPath = path.join(outputDir, outputFilename)
+  // H3 emits 32 kHz audio. Preserve the first available source sample rate
+  // instead of forcing every episode through a 48 kHz resampler.
+  const audioSampleRate = await getFirstAudioSampleRate(videos)
 
   await new Promise<void>((resolve, reject) => {
     ffmpeg()
@@ -112,7 +115,7 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
         '-preset', 'medium',
         '-crf', '23',
         '-c:a', 'aac',
-        '-ar', '48000',
+        ...(audioSampleRate ? ['-ar', String(audioSampleRate)] : []),
         '-b:a', '192k',
         '-movflags', '+faststart',
       ])
@@ -145,6 +148,21 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
     .where(eq(schema.episodes.id, episodeId))
 
   logTaskSuccess('MergeTask', 'episode-merge', { mergeId, episodeId, output: mergedRelative, duration, clips: videos.length })
+}
+
+async function getFirstAudioSampleRate(videos: string[]): Promise<number | null> {
+  for (const video of videos) {
+    const sampleRate = await new Promise<number | null>((resolve) => {
+      ffmpeg.ffprobe(toAbsPath(video), (err, metadata) => {
+        if (err) { resolve(null); return }
+        const stream = metadata.streams?.find(item => item.codec_type === 'audio')
+        const value = Number(stream?.sample_rate)
+        resolve(Number.isInteger(value) && value > 0 ? value : null)
+      })
+    })
+    if (sampleRate) return sampleRate
+  }
+  return null
 }
 
 function getVideoDuration(filePath: string): Promise<number> {

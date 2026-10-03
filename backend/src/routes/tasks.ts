@@ -5,6 +5,7 @@ import { success, created, badRequest } from '../utils/response.js'
 import { generateImage, generateVideo } from '../services/generation.js'
 import { getActiveConfig, getConfigById } from '../services/ai.js'
 import { getDramaStylePrompt } from '../services/style-preset.js'
+import { assertStoryboardMotionContextSource } from '../services/storyboard-continuity.js'
 import { logTaskError, logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
@@ -52,11 +53,13 @@ function normalizeVideoRequest(body: any) {
     seed: body.seed ?? parameters.seed,
     prompt_extend: body.prompt_extend ?? parameters.prompt_extend,
     watermark: body.watermark ?? parameters.watermark,
+    continuity_mode: body.continuity_mode ?? parameters.continuity_mode,
+    continuity_source_storyboard_id: body.continuity_source_storyboard_id ?? parameters.continuity_source_storyboard_id,
     official_media: media,
   }
 }
 
-function validateVideoRequest(body: any, provider?: string): string | null {
+function validateVideoRequest(body: any, provider?: string, configuredModel?: string): string | null {
   for (const key of ['reference_image_urls', 'reference_video_urls', 'reference_audio_urls']) {
     if (body[key] !== undefined && !Array.isArray(body[key])) return `${key} 必须为数组`
     if (Array.isArray(body[key]) && body[key].some((url: any) => typeof url !== 'string' || !url.trim())) {
@@ -75,6 +78,34 @@ function validateVideoRequest(body: any, provider?: string): string | null {
         return `Wan 3.0 input.media 中 ${type} 最多 1 项`
       }
     }
+  }
+
+  const continuityMode = body.continuity_mode
+  if (continuityMode != null && continuityMode !== '' && continuityMode !== 'motion_context') {
+    return 'continuity_mode 只支持 motion_context'
+  }
+  if (body.continuity_source_storyboard_id != null && !Number.isInteger(Number(body.continuity_source_storyboard_id))) {
+    return 'continuity_source_storyboard_id 必须为整数'
+  }
+  if (continuityMode === 'motion_context') {
+    const modelText = body.model || configuredModel || ''
+    if ((provider || '').toLowerCase() !== 'comfyui' || !/minimax[_-]?h3/i.test(modelText)) {
+      return 'motion_context 仅支持 ComfyUI MiniMax H3 模型'
+    }
+    if (!Number.isInteger(Number(body.storyboard_id)) || Number(body.storyboard_id) <= 0) {
+      return 'motion_context 需要当前分镜 ID'
+    }
+    if (!Number.isInteger(Number(body.continuity_source_storyboard_id)) || Number(body.continuity_source_storyboard_id) <= 0) {
+      return 'motion_context 需要上一分镜 ID'
+    }
+    if (Number(body.storyboard_id) === Number(body.continuity_source_storyboard_id)) {
+      return 'motion_context 的来源分镜不能与当前分镜相同'
+    }
+    if (body.first_frame_url || body.last_frame_url) {
+      return 'motion_context 不能同时指定首帧或尾帧图片'
+    }
+  } else if (body.continuity_source_storyboard_id != null) {
+    return '指定 continuity_source_storyboard_id 时必须使用 motion_context'
   }
 
   const imgs = body.reference_image_urls.length
@@ -138,8 +169,14 @@ app.post('/', async (c) => {
       const effectiveConfig = configId
         ? (await getConfigById(configId)) ?? await getActiveConfig('video')
         : await getActiveConfig('video')
-      const validationError = validateVideoRequest(videoBody, effectiveConfig?.provider)
+      const validationError = validateVideoRequest(videoBody, effectiveConfig?.provider, effectiveConfig?.model)
       if (validationError) return badRequest(c, validationError)
+      if (videoBody.continuity_mode === 'motion_context') {
+        await assertStoryboardMotionContextSource(
+          Number(body.storyboard_id),
+          Number(videoBody.continuity_source_storyboard_id),
+        )
+      }
     }
 
     logTaskStart('TaskAPI', 'generate', {
@@ -182,6 +219,10 @@ app.post('/', async (c) => {
         firstFrameUrl: videoBody!.first_frame_url,
         lastFrameUrl: videoBody!.last_frame_url,
         referenceImageUrls: videoBody!.reference_image_urls,
+        continuityMode: videoBody!.continuity_mode === 'motion_context' ? 'motion_context' : undefined,
+        continuitySourceStoryboardId: videoBody!.continuity_source_storyboard_id == null
+          ? undefined
+          : Number(videoBody!.continuity_source_storyboard_id),
         referenceVideoUrls: videoBody!.reference_video_urls,
         referenceAudioUrls: videoBody!.reference_audio_urls,
         referenceFileUrl: videoBody!.file_url,

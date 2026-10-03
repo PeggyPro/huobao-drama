@@ -14,12 +14,12 @@ export async function downloadFile(url: string, subDir: string): Promise<string>
   const dir = path.join(STORAGE_ROOT, subDir)
   fs.mkdirSync(dir, { recursive: true })
 
-  const ext = getExtFromUrl(url)
-  const filename = `${uuid()}${ext}`
-  const filePath = path.join(dir, filename)
-
   const resp = await fetch(url)
   if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
+
+  const ext = getExtFromUrl(url, resp.headers.get('content-type'))
+  const filename = `${uuid()}${ext}`
+  const filePath = path.join(dir, filename)
 
   const buffer = Buffer.from(await resp.arrayBuffer())
   fs.writeFileSync(filePath, buffer)
@@ -43,11 +43,17 @@ export async function saveUploadedFile(data: ArrayBuffer, subDir: string, origin
   return `static/${subDir}/${filename}`
 }
 
-function getExtFromUrl(url: string): string {
+function getExtFromUrl(url: string, contentType: string | null): string {
+  const mimeExt = mimeTypeToExt((contentType || '').split(';')[0].trim().toLowerCase(), '.bin')
+  if (mimeExt !== '.bin') return mimeExt
+
   try {
-    const pathname = new URL(url).pathname
-    const ext = path.extname(pathname)
-    if (ext && ext.length <= 5) return ext
+    const parsed = new URL(url)
+    // ComfyUI serves files through /view?filename=... rather than a file path.
+    for (const name of [parsed.searchParams.get('filename'), parsed.pathname]) {
+      const ext = path.extname(name || '').toLowerCase()
+      if (/^\.[a-z0-9]{1,4}$/.test(ext)) return ext
+    }
   } catch {}
   return '.bin'
 }
@@ -176,15 +182,22 @@ export function parseDataUrl(dataUrl: string): { mimeType: string; data: string 
   }
 }
 
-function mimeTypeToExt(mimeType: string): string {
+function mimeTypeToExt(mimeType: string, fallback = '.png'): string {
   const map: Record<string, string> = {
     'image/png': '.png',
     'image/jpeg': '.jpg',
     'image/jpg': '.jpg',
     'image/webp': '.webp',
     'image/gif': '.gif',
+    'video/mp4': '.mp4',
+    'application/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+    'video/x-m4v': '.m4v',
+    'video/x-matroska': '.mkv',
+    'video/x-msvideo': '.avi',
   }
-  return map[mimeType] || '.png'
+  return map[mimeType] || fallback
 }
 
 function extToMimeType(ext: string): string {
