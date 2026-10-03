@@ -61,20 +61,46 @@ export function getTextProviderBaseUrl(config: AIConfig) {
 const lastLoggedActiveConfigKey = new Map<string, string>()
 const lastLoggedConfigByIdKey = new Map<number, string>()
 
-export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfig | null> {
-  const rows = (await db.select().from(schema.aiServiceConfigs)
-    .where(eq(schema.aiServiceConfigs.serviceType, serviceType))
-  )
-    .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider))
-    .sort((a, b) => (b.priority || 0) - (a.priority || 0)) // 高优先级优先
+function rowModels(row: typeof schema.aiServiceConfigs.$inferSelect): string[] {
+  if (!row.model) return []
+  try {
+    const parsed = JSON.parse(row.model)
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
+  } catch {
+    return []
+  }
+}
 
+function rowToConfig(row: typeof schema.aiServiceConfigs.$inferSelect): AIConfig {
+  const models = rowModels(row)
+  return {
+    provider: row.provider || '',
+    baseUrl: row.baseUrl,
+    apiKey: row.apiKey,
+    model: models[0] || '',
+    temperature: parseConfigTemperature(row.settings),
+  }
+}
+
+function activeRowsFor(serviceType: ServiceType, provider?: string, model?: string) {
+  return db.select().from(schema.aiServiceConfigs)
+    .where(eq(schema.aiServiceConfigs.serviceType, serviceType))
+    .then(rows => rows
+      .filter(r => r.isActive && isOfficialProvider(serviceType, r.provider))
+      .filter(r => !provider || r.provider?.toLowerCase() === provider.toLowerCase())
+      .filter(r => !model || rowModels(r).includes(model))
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0)))
+}
+
+export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfig | null> {
+  const rows = await activeRowsFor(serviceType)
   const active = rows[0]
   if (!active) {
     logTaskWarn('AIConfig', 'active-config-missing', { serviceType })
     return null
   }
 
-  const models = active.model ? JSON.parse(active.model) : []
+  const models = rowModels(active)
   const logKey = `${active.id}:${models[0] || ''}`
   if (lastLoggedActiveConfigKey.get(serviceType) !== logKey) {
     lastLoggedActiveConfigKey.set(serviceType, logKey)
@@ -86,13 +112,19 @@ export async function getActiveConfig(serviceType: ServiceType): Promise<AIConfi
       priority: active.priority,
     })
   }
-  return {
-    provider: active.provider || '',
-    baseUrl: active.baseUrl,
-    apiKey: active.apiKey,
-    model: models[0] || '',
-    temperature: parseConfigTemperature(active.settings),
-  }
+  return rowToConfig(active)
+}
+
+/**
+ * Used only when recovering a persisted async task. The currently active
+ * provider for the service type may have changed since the task was queued;
+ * keep polling with the same provider family instead of silently switching to
+ * another vendor.
+ */
+export async function getActiveConfigForProvider(serviceType: ServiceType, provider: string, model?: string): Promise<AIConfig | null> {
+  const rows = await activeRowsFor(serviceType, provider, model)
+  if (rows.length !== 1) return null
+  return rowToConfig(rows[0])
 }
 
 export async function getTextConfig(): Promise<AIConfig> {
@@ -128,7 +160,7 @@ export async function getConfigById(id: number): Promise<AIConfig | null> {
     })
     return null
   }
-  const models = row.model ? JSON.parse(row.model) : []
+  const models = rowModels(row)
   const logKey = `${row.provider}:${models[0] || ''}:${row.serviceType}`
   if (lastLoggedConfigByIdKey.get(id) !== logKey) {
     lastLoggedConfigByIdKey.set(id, logKey)
@@ -139,11 +171,5 @@ export async function getConfigById(id: number): Promise<AIConfig | null> {
       serviceType: row.serviceType,
     })
   }
-  return {
-    provider: row.provider || '',
-    baseUrl: row.baseUrl,
-    apiKey: row.apiKey,
-    model: models[0] || '',
-    temperature: parseConfigTemperature(row.settings),
-  }
+  return rowToConfig(row)
 }

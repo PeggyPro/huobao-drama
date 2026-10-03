@@ -770,7 +770,7 @@ const providerPresets = {
   image: {
     gemini: { label: 'Gemini 官方', baseUrl: 'https://generativelanguage.googleapis.com', models: ['gemini-3-pro-image', 'gemini-3.1-flash-image'] },
     openai: { label: 'OpenAI 官方', baseUrl: 'https://api.openai.com', models: ['gpt-image-2'] },
-    comfyui: { label: '本地 ComfyUI · 文生图', baseUrl: 'http://127.0.0.1:8188', models: ['V4-09_Z-Image_Turbo_文生图_4K'] },
+    comfyui: { label: '本地 ComfyUI · Qwen Image 2.1', baseUrl: 'http://127.0.0.1:8188', models: ['huobao_qwen_image_2_1_api', 'V4-09_Z-Image_Turbo_文生图_4K'] },
   },
   video: {
     aliyun: { label: '阿里云百炼 Wan 3.0', baseUrl: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com', models: ['wan3.0-video', 'wan3.0-video-prime'] },

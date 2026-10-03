@@ -23,7 +23,10 @@ import type {
   VideoProviderAdapter,
 } from './types'
 
-export const COMFYUI_IMAGE_WORKFLOW = 'V4-09_Z-Image_Turbo_文生图_4K'
+export const COMFYUI_QWEN_IMAGE_WORKFLOW = 'huobao_qwen_image_2_1_api'
+/** Canonical image workflow; the older Z-Image workflow remains available below. */
+export const COMFYUI_IMAGE_WORKFLOW = COMFYUI_QWEN_IMAGE_WORKFLOW
+export const COMFYUI_Z_IMAGE_WORKFLOW = 'V4-09_Z-Image_Turbo_文生图_4K'
 export const COMFYUI_VIDEO_WORKFLOW = 'zib+zit+最大程度保持原样双采+'
 
 /** Public model-to-workflow mapping used by Huobao clients and settings. */
@@ -31,8 +34,15 @@ export const COMFYUI_WORKFLOWS = {
   image: {
     serviceType: 'image',
     provider: 'comfyui',
-    model: COMFYUI_IMAGE_WORKFLOW,
-    workflowFile: `${COMFYUI_IMAGE_WORKFLOW}.json`,
+    model: COMFYUI_QWEN_IMAGE_WORKFLOW,
+    workflowFile: `${COMFYUI_QWEN_IMAGE_WORKFLOW}.json`,
+    outputType: 'image',
+  },
+  imageLegacy: {
+    serviceType: 'image',
+    provider: 'comfyui',
+    model: COMFYUI_Z_IMAGE_WORKFLOW,
+    workflowFile: `${COMFYUI_Z_IMAGE_WORKFLOW}.json`,
     outputType: 'image',
   },
   video: {
@@ -45,8 +55,10 @@ export const COMFYUI_WORKFLOWS = {
 } as const
 
 const WORKFLOW_ALIASES: Record<string, string> = {
-  [COMFYUI_IMAGE_WORKFLOW]: `${COMFYUI_IMAGE_WORKFLOW}.json`,
-  [`${COMFYUI_IMAGE_WORKFLOW}.json`]: `${COMFYUI_IMAGE_WORKFLOW}.json`,
+  [COMFYUI_QWEN_IMAGE_WORKFLOW]: `${COMFYUI_QWEN_IMAGE_WORKFLOW}.json`,
+  [`${COMFYUI_QWEN_IMAGE_WORKFLOW}.json`]: `${COMFYUI_QWEN_IMAGE_WORKFLOW}.json`,
+  [COMFYUI_Z_IMAGE_WORKFLOW]: `${COMFYUI_Z_IMAGE_WORKFLOW}.json`,
+  [`${COMFYUI_Z_IMAGE_WORKFLOW}.json`]: `${COMFYUI_Z_IMAGE_WORKFLOW}.json`,
   [COMFYUI_VIDEO_WORKFLOW]: `${COMFYUI_VIDEO_WORKFLOW}.json`,
   [`${COMFYUI_VIDEO_WORKFLOW}.json`]: `${COMFYUI_VIDEO_WORKFLOW}.json`,
 }
@@ -115,24 +127,45 @@ function isNegativeNode(node: Record<string, any>): boolean {
 function injectPrompt(workflow: Record<string, any>, prompt: string | null | undefined): void {
   const text = String(prompt || '').trim()
   if (!text) return
-  const nodes = Object.values(workflow)
+  const nodes = Object.values(workflow) as Record<string, any>[]
+
+  // Qwen Image 2.1 keeps the long rewriting instructions in a
+  // PrimitiveStringMultiline system prompt. The user prompt belongs in
+  // TextGenerate.prompt and in the switch's direct (false) branch; replacing
+  // the primitive would silently delete the enhancer instructions.
+  const qwenEncoder = nodes.find((node) => node?.class_type === 'TextEncodeQwenImage21')
+  if (qwenEncoder) {
+    const promptLink = qwenEncoder.inputs?.prompt
+    const switchNode = Array.isArray(promptLink)
+      ? workflow[String(promptLink[0])]
+      : undefined
+    const enhancer = nodes.find((node) => node?.class_type === 'TextGenerate')
+    if (switchNode?.class_type === 'ComfySwitchNode') {
+      switchNode.inputs.on_false = text
+      if (enhancer) enhancer.inputs.prompt = text
+      return
+    }
+    if (typeof qwenEncoder.inputs?.prompt === 'string') qwenEncoder.inputs.prompt = text
+    if (enhancer) enhancer.inputs.prompt = text
+    return
+  }
 
   // The double-sampling workflow deliberately routes one primitive string to
   // both positive conditioning stages. Updating it preserves that topology.
-  const primitive = nodes.find((node: any) => (
+  const primitive = nodes.find((node) => (
     node?.class_type === 'PrimitiveStringMultiline' && typeof node.inputs?.value === 'string'
-  )) as Record<string, any> | undefined
+  ))
   if (primitive) {
     primitive.inputs.value = text
     return
   }
 
   // The image workflow has one direct positive CLIPTextEncode input.
-  const positive = nodes.find((node: any) => (
+  const positive = nodes.find((node) => (
     node?.class_type === 'CLIPTextEncode'
       && typeof node.inputs?.text === 'string'
       && !isNegativeNode(node)
-  )) as Record<string, any> | undefined
+  ))
   if (positive) positive.inputs.text = text
 }
 
@@ -146,7 +179,7 @@ function injectImageSize(workflow: Record<string, any>, size: string | null | un
   // Only update literal latent dimensions. The double-sampling workflow's
   // ResolutionSelector is linked and must keep its own aspect-ratio logic.
   for (const node of Object.values(workflow) as Record<string, any>[]) {
-    if (node?.class_type !== 'EmptySD3LatentImage') continue
+    if (!['EmptySD3LatentImage', 'EmptyLatentImage'].includes(node?.class_type)) continue
     if (typeof node.inputs?.width === 'number') node.inputs.width = width
     if (typeof node.inputs?.height === 'number') node.inputs.height = height
   }
@@ -171,11 +204,63 @@ function injectVideoDuration(workflow: Record<string, any>, duration: number | n
 }
 
 function randomizeImageSeed(workflow: Record<string, any>): void {
-  const sampler = Object.values(workflow).find((node: any) => (
-    node?.class_type === 'KSampler'
-      && typeof node.inputs?.seed === 'number'
-  )) as Record<string, any> | undefined
-  if (sampler) sampler.inputs.seed = randomInt(0, 2 ** 48 - 1)
+  const seed = randomInt(0, 2 ** 48 - 1)
+  for (const node of Object.values(workflow) as Record<string, any>[]) {
+    if (node?.class_type === 'KSampler' && typeof node.inputs?.seed === 'number') {
+      node.inputs.seed = seed
+    }
+    // Keep the optional Qwen prompt enhancer deterministic with the image
+    // sampler when its dynamic sampling seed is present.
+    if (node?.class_type === 'TextGenerate' && typeof node.inputs?.['sampling_mode.seed'] === 'number') {
+      node.inputs['sampling_mode.seed'] = seed
+    }
+  }
+}
+
+/** Resolve once per new video task; -1 follows the API convention for random. */
+export function resolveComfyUIVideoSeed(seed?: number | null): number {
+  if (seed == null || seed === -1) return randomInt(0, 2 ** 48 - 1)
+  if (!Number.isSafeInteger(seed) || seed < 0) {
+    throw new Error(`ComfyUI 视频 seed 必须为 -1 或 0~${Number.MAX_SAFE_INTEGER} 的整数`)
+  }
+  return seed
+}
+
+const VIDEO_SEED_INPUTS: Record<string, string> = {
+  RandomNoise: 'noise_seed',
+  KSampler: 'seed',
+  KSamplerAdvanced: 'noise_seed',
+  SamplerCustom: 'noise_seed',
+  'Seed (rgthree)': 'seed',
+  TextGenerate: 'sampling_mode.seed',
+}
+
+function injectVideoSeed(workflow: Record<string, any>, seed: number): void {
+  const setSeed = (node: Record<string, any>, key: string) => {
+    // rgthree accepts a narrower range than ComfyUI's core noise/sampler nodes.
+    if (node.class_type === 'Seed (rgthree)' && seed > 2 ** 50) {
+      throw new Error(`Seed (rgthree) 种子不能超过 ${2 ** 50}`)
+    }
+    node.inputs[key] = seed
+  }
+  for (const [id, node] of Object.entries(workflow)) {
+    const key = VIDEO_SEED_INPUTS[node?.class_type]
+    if (!key || !node.inputs || !(key in node.inputs)) continue
+    const value = node.inputs[key]
+    if (typeof value === 'number') {
+      setSeed(node, key)
+      continue
+    }
+    // Keep shared seed links intact (e.g. both KSamplerAdvanced stages point
+    // to one rgthree seed). Only change the source's numeric seed/value.
+    const source = Array.isArray(value) && value[1] === 0 ? workflow[String(value[0])] : undefined
+    const sourceKey = source?.class_type === 'PrimitiveInt' ? 'value' : VIDEO_SEED_INPUTS[source?.class_type]
+    if (sourceKey && typeof source?.inputs?.[sourceKey] === 'number') {
+      setSeed(source, sourceKey)
+      continue
+    }
+    throw new Error(`无法设置 ComfyUI 节点 ${id} 的 ${key}，请使用数值或受支持的种子节点连接`)
+  }
 }
 
 function buildWorkflowPrompt(
@@ -363,6 +448,7 @@ export class ComfyUIVideoAdapter extends ComfyUIAdapterBase implements VideoProv
       process.env.COMFYUI_VIDEO_WORKFLOW,
     )
     injectVideoDuration(workflow, record.duration)
+    injectVideoSeed(workflow, resolveComfyUIVideoSeed(record.seed))
     const prompt = await injectComfyUIVideoReferences(config, record, workflow)
     injectPrompt(workflow, prompt)
     return this.buildRequest(config, workflow, `huobao-video-${record.id}`)

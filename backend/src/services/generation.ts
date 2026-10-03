@@ -4,11 +4,12 @@
  */
 import { db, getInsertId, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
-import { getActiveConfig, getConfigById } from './ai.js'
+import { getActiveConfig, getActiveConfigForProvider, getConfigById } from './ai.js'
 import { now } from '../utils/response.js'
 import { downloadFile, fetchImageAsCompressedDataUrl, generateImageThumb, readImageAsCompressedDataUrl, saveBase64Image } from '../utils/storage.js'
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { getImageAdapter, getVideoAdapter } from './adapters/registry'
+import { resolveComfyUIVideoSeed } from './adapters/comfyui.js'
 import type { AIConfig } from './adapters/types'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 
@@ -16,11 +17,37 @@ type TaskType = 'image' | 'video'
 
 const taskLabel = (type: TaskType) => (type === 'image' ? 'ImageTask' : 'VideoTask')
 
-// 轮询节奏：图片 5s×120（上限 10 分钟）；视频 10s×300
+// 轮询节奏：图片 5s×120（上限 10 分钟）；视频 10s×720（上限 2 小时）。
+// ComfyUI 会串行执行重型视频队列，排队时间也必须计入等待窗口。
 const POLL_PROFILES: Record<TaskType, { attempts: number; intervalMs: number; maxDurationMs: number | null }> = {
   image: { attempts: 120, intervalMs: 5000, maxDurationMs: 600_000 },
-  video: { attempts: 300, intervalMs: 10_000, maxDurationMs: null },
+  video: { attempts: 720, intervalMs: 10_000, maxDurationMs: null },
 }
+
+// A batch can create many requests at once. ComfyUI itself queues them, but
+// reference decoding/uploading happens inside this Node process first. Keep
+// that preparation bounded so a large H3 batch cannot exhaust backend memory.
+class AsyncLimiter {
+  private active = 0
+  private readonly waiters: (() => void)[] = []
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) await new Promise<void>(resolve => this.waiters.push(resolve))
+    this.active += 1
+    try {
+      return await work()
+    } finally {
+      this.active -= 1
+      this.waiters.shift()?.()
+    }
+  }
+}
+
+const comfyuiBuildLimiter = new AsyncLimiter(Math.max(1, Math.min(4, Number(process.env.COMFYUI_SUBMIT_CONCURRENCY) || 2)))
+
+export const SERVICE_RESTART_ERROR = '服务重启，生成任务中断，请重试'
 
 interface GenerateImageParams {
   storyboardId?: number
@@ -56,7 +83,7 @@ interface GenerateVideoParams {
   duration?: number
   aspectRatio?: string
   resolution?: string
-  seed?: number
+  seed?: number | null
   promptExtend?: boolean
   watermark?: boolean
   configId?: number
@@ -172,7 +199,14 @@ async function createTask(
     type,
     ...fields,
     provider: config.provider,
-    params: JSON.stringify(params),
+    params: JSON.stringify({
+      ...params,
+      __huobaoConfig: {
+        provider: config.provider,
+        baseUrl: config.baseUrl,
+        model: config.model,
+      },
+    }),
     status: 'processing',
     createdAt: ts,
     updatedAt: ts,
@@ -195,6 +229,55 @@ function parseTaskParams(raw: string | null | undefined): Record<string, any> {
   }
 }
 
+// Keep restart markers for a day so a backend can be restarted after a long
+// ComfyUI queue without losing already finished history entries.
+const COMFYUI_RECOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Reattach persisted ComfyUI jobs after a backend restart. ComfyUI owns the
+ * queue and keeps the prompt history, while Huobao's in-memory poller is the
+ * part that was lost; resuming the poll is safe and avoids submitting a second
+ * prompt for the same storyboard.
+ */
+export async function recoverInterruptedTasks() {
+  const cutoff = Date.now() - COMFYUI_RECOVERY_MAX_AGE_MS
+  const candidates = (await db.select().from(schema.sysTask))
+    .filter(record => record.errorMsg === SERVICE_RESTART_ERROR)
+    .filter(record => record.provider?.toLowerCase() === 'comfyui')
+    .filter(record => record.taskId && record.status === 'failed')
+    .filter(record => Date.parse(record.createdAt) >= cutoff)
+
+  for (const record of candidates) {
+    const type = record.type as TaskType
+    if (type !== 'image' && type !== 'video') continue
+    const saved = parseTaskParams(record.params).__huobaoConfig
+    const taskModel = record.model || saved?.model || undefined
+    let config = await getActiveConfigForProvider(type, 'comfyui', taskModel)
+    if (!config && saved?.provider?.toLowerCase() === 'comfyui' && typeof saved.baseUrl === 'string' && saved.baseUrl) {
+      config = {
+        provider: saved.provider,
+        baseUrl: saved.baseUrl,
+        apiKey: '',
+        model: saved.model || record.model || '',
+      }
+    }
+    if (!config) {
+      logTaskWarn(taskLabel(type), 'restart-recovery-config-missing', { id: record.id, taskId: record.taskId })
+      continue
+    }
+
+    await db.update(schema.sysTask)
+      .set({ status: 'processing', errorMsg: null, completedAt: null, updatedAt: now() })
+      .where(eq(schema.sysTask.id, record.id))
+    const resumedRecord = { ...record, status: 'processing', errorMsg: null, completedAt: null }
+    logTaskProgress(taskLabel(type), 'restart-recovery', { id: record.id, taskId: record.taskId })
+    pollTask(resumedRecord, config, record.taskId!).catch(async err => {
+      logTaskError(taskLabel(type), 'restart-recovery', { id: record.id, taskId: record.taskId, error: err.message })
+      await failTask(record.id, err.message)
+    })
+  }
+}
+
 async function processTask(id: number, config: AIConfig) {
   try {
     const [record] = await db.select().from(schema.sysTask).where(eq(schema.sysTask.id, id))
@@ -210,20 +293,20 @@ async function processTask(id: number, config: AIConfig) {
       characterId: record.characterId,
     })
 
-    let url: string, method: string, headers: Record<string, string>, body: unknown
+    const buildRequest = async () => {
+      if (type === 'image') {
+        const adapter = getImageAdapter(config.provider)
+        const resolvedReferenceImages = await normalizeReferenceImages(params.referenceImages)
+        return adapter.buildGenerateRequest(config, {
+          id: record.id,
+          model: record.model,
+          prompt: record.prompt,
+          size: params.size,
+          frameType: params.frameType,
+          referenceImages: resolvedReferenceImages.length ? JSON.stringify(resolvedReferenceImages) : null,
+        })
+      }
 
-    if (type === 'image') {
-      const adapter = getImageAdapter(config.provider)
-      const resolvedReferenceImages = await normalizeReferenceImages(params.referenceImages)
-      ;({ url, method, headers, body } = adapter.buildGenerateRequest(config, {
-        id: record.id,
-        model: record.model,
-        prompt: record.prompt,
-        size: params.size,
-        frameType: params.frameType,
-        referenceImages: resolvedReferenceImages.length ? JSON.stringify(resolvedReferenceImages) : null,
-      }))
-    } else {
       const adapter = getVideoAdapter(config.provider)
       // ComfyUI reads and uploads the original assets itself. Preserve positions
       // and missing URLs so a broken image cannot silently shift @图片N bindings.
@@ -237,7 +320,7 @@ async function processTask(id: number, config: AIConfig) {
       const resolvedReferenceVideoUrls = localReferences ? (params.referenceVideoUrls || []) : resolvePublicMediaUrls(params.referenceVideoUrls, 'video')
       const resolvedReferenceAudioUrls = localReferences ? (params.referenceAudioUrls || []) : resolvePublicMediaUrls(params.referenceAudioUrls, 'audio')
       const resolvedReferenceFileUrl = localReferences ? params.referenceFileUrl : resolvePublicMediaUrl(params.referenceFileUrl, 'file')
-      ;({ url, method, headers, body } = await adapter.buildGenerateRequest(config, {
+      return adapter.buildGenerateRequest(config, {
         id: record.id,
         storyboardId: record.storyboardId,
         model: record.model,
@@ -260,8 +343,12 @@ async function processTask(id: number, config: AIConfig) {
         seed: params.seed,
         promptExtend: params.promptExtend,
         watermark: params.watermark,
-      }))
+      })
     }
+    const request = config.provider.toLowerCase() === 'comfyui'
+      ? await comfyuiBuildLimiter.run(buildRequest)
+      : await buildRequest()
+    const { url, method, headers, body } = request
 
     logTaskProgress(label, 'request', {
       id,

@@ -11,7 +11,13 @@ dist/
 *.swo
 *~
 .proxyai
-comfyui_workflows
+# Keep local workflow packs ignored, but track the Huobao Qwen API deliverable and its docs.
+comfyui_workflows/*
+!comfyui_workflows/
+comfyui_workflows/huobao_32gb/*
+!comfyui_workflows/huobao_32gb/
+!comfyui_workflows/huobao_32gb/README.md
+!comfyui_workflows/huobao_32gb/huobao_qwen_image_2_1_api.json
 artifacts
 
 # Environment

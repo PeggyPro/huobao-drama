@@ -29,6 +29,7 @@ import { db, schema } from './db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from './utils/response.js'
 import { DATA_ROOT } from './utils/paths.js'
+import { recoverInterruptedTasks, SERVICE_RESTART_ERROR } from './services/generation.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '../..')
@@ -90,14 +91,15 @@ app.get('*', serveStatic({ root: distPath, path: 'index.html' }))
 const port = Number(process.env.PORT || 5679)
 console.log(`🚀 Huobao Drama TS server on http://localhost:${port}`)
 
-// 进程重启后内存中的轮询线程全部丢失,残留的 processing 任务永远不会完成,
-// 启动时统一标记为 failed,避免前端一直显示"生成中"
+// 进程重启后内存中的轮询线程全部丢失。先把没有恢复入口的 processing 任务
+// 标记为中断，再让 ComfyUI 已经拿到 prompt_id 的任务重新接上 /history 轮询。
 db.update(schema.sysTask)
-  .set({ status: 'failed', errorMsg: '服务重启，生成任务中断，请重试', updatedAt: now() })
+  .set({ status: 'failed', errorMsg: SERVICE_RESTART_ERROR, updatedAt: now() })
   .where(eq(schema.sysTask.status, 'processing'))
-  .then(res => {
+  .then(async res => {
     const affected = res?.changes ?? 0
     if (affected > 0) console.log(`🔁 已清理 ${affected} 个中断的生成任务`)
+    await recoverInterruptedTasks()
   })
   .catch(err => console.error('清理中断任务失败:', err?.message))
 
