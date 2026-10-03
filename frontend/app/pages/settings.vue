@@ -73,7 +73,7 @@
         </div>
 
         <!-- ===== AI 服务配置 ===== -->
-        <div v-if="tab === 'ai'" class="settings-scroll">
+        <div v-if="tab === 'ai'" ref="settingsScrollEl" class="settings-scroll">
           <div class="settings-head">
             <h2 class="settings-title">{{ t('settings.ai.title') }}</h2>
             <p class="settings-desc">{{ t('settings.ai.desc') }}</p>
@@ -166,10 +166,16 @@
                   <div class="config-sub mono truncate">{{ c.base_url || t('settings.ai.noBaseUrl') }}</div>
                 </div>
                 <button v-if="st.type === 'text'" class="btn btn-ghost btn-sm" @click="testExistingCfg(c)">{{ t('settings.ai.test') }}</button>
-                <label class="config-switch">
-                  <input type="checkbox" class="sr-only" :checked="c.is_active" @change="toggleCfg(c)">
+                <button
+                  type="button"
+                  class="config-switch"
+                  :aria-pressed="c.is_active"
+                  :aria-label="c.name || c.provider"
+                  :disabled="updatingCfgIds.has(c.id)"
+                  @click="toggleCfg(c)"
+                >
                   <span class="switch" :class="{ on: c.is_active }"></span>
-                </label>
+                </button>
                 <button class="btn btn-ghost btn-icon btn-sm" @click="startEditCfg(c)"><Pencil :size="13" /></button>
                 <button class="btn btn-danger btn-icon btn-sm" @click="delCfg(c.id)"><Trash2 :size="13" /></button>
               </div>
@@ -179,7 +185,7 @@
         </div>
 
         <!-- ===== 风格预设 ===== -->
-        <div v-else-if="tab === 'styles'" class="settings-scroll">
+        <div v-else-if="tab === 'styles'" ref="settingsScrollEl" class="settings-scroll">
           <div class="settings-head">
             <h2 class="settings-title">{{ t('settings.styles.title') }}</h2>
             <p class="settings-desc">{{ t('settings.styles.desc') }}</p>
@@ -203,10 +209,16 @@
                 <div class="config-sub mono truncate">{{ p.prompt }}</div>
                 <div v-if="p.description" class="config-sub truncate">{{ p.description }}</div>
               </div>
-              <label class="config-switch">
-                <input type="checkbox" class="sr-only" :checked="p.is_active" @change="toggleStyle(p)">
+              <button
+                type="button"
+                class="config-switch"
+                :aria-pressed="p.is_active"
+                :aria-label="p.name"
+                :disabled="updatingStyleIds.has(p.id)"
+                @click="toggleStyle(p)"
+              >
                 <span class="switch" :class="{ on: p.is_active }"></span>
-              </label>
+              </button>
               <button class="btn btn-ghost btn-icon btn-sm" @click="startEditStyle(p)"><Pencil :size="13" /></button>
               <button class="btn btn-danger btn-icon btn-sm" @click="styleToDelete = p"><Trash2 :size="13" /></button>
             </div>
@@ -673,6 +685,7 @@
 
 <script setup>
 import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles, Palette, ExternalLink, Star, HardDrive, Database, RefreshCw, Download, Languages, SunMoon, X } from 'lucide-vue-next'
+import { nextTick } from 'vue'
 import BaseSelect from '~/components/BaseSelect.vue'
 import { toast } from 'vue-sonner'
 import { toastError } from '~/composables/useToast'
@@ -700,6 +713,8 @@ const baseTabs = computed(() => [
 
 // ===== AI Service Configs =====
 const cfgs = ref([])
+const settingsScrollEl = ref(null)
+const updatingCfgIds = reactive(new Set())
 const cfgDialog = ref(false)
 const cfgEditId = ref(null)
 const cfgTesting = ref(false)
@@ -825,7 +840,30 @@ async function setDefaultModel(type, c, m) {
     defaultSaving.value = false
   }
 }
-async function toggleCfg(c) { await aiConfigAPI.update(c.id, { is_active: !c.is_active }); loadCfgs() }
+async function toggleCfg(c) {
+  if (updatingCfgIds.has(c.id)) return
+  updatingCfgIds.add(c.id)
+  const next = !c.is_active
+  const scrollEl = settingsScrollEl.value
+  const scrollTop = scrollEl?.scrollTop ?? 0
+  // 更新当前行即可，避免重新拉取整个列表时替换 DOM 导致滚动容器跳动。
+  c.is_active = next
+  await nextTick()
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollTop
+    requestAnimationFrame(() => {
+      if (scrollEl.isConnected) scrollEl.scrollTop = scrollTop
+    })
+  }
+  try {
+    await aiConfigAPI.update(c.id, { is_active: next })
+  } catch (e) {
+    c.is_active = !next
+    toastError(e)
+  } finally {
+    updatingCfgIds.delete(c.id)
+  }
+}
 async function delCfg(id) { await aiConfigAPI.del(id); toast.success(t('index.deleted')); loadCfgs() }
 async function applyHuobaoQuickConfig() {
   const apiKey = huobaoApiKey.value.trim()
@@ -1136,6 +1174,7 @@ async function saveSkill(id) {
 
 // ===== Style Presets =====
 const stylePresets = ref([])
+const updatingStyleIds = reactive(new Set())
 const styleDialog = ref(false)
 const styleEditId = ref(null)
 const styleForm = reactive({ name: '', value: '', prompt: '', description: '', sort_order: 0 })
@@ -1145,10 +1184,27 @@ async function loadStylePresets() {
 }
 
 async function toggleStyle(p) {
+  if (updatingStyleIds.has(p.id)) return
+  updatingStyleIds.add(p.id)
+  const next = !p.is_active
+  const scrollEl = settingsScrollEl.value
+  const scrollTop = scrollEl?.scrollTop ?? 0
+  p.is_active = next
+  await nextTick()
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollTop
+    requestAnimationFrame(() => {
+      if (scrollEl.isConnected) scrollEl.scrollTop = scrollTop
+    })
+  }
   try {
-    await stylePresetAPI.update(p.id, { is_active: !p.is_active })
-    loadStylePresets()
-  } catch (e) { toastError(e) }
+    await stylePresetAPI.update(p.id, { is_active: next })
+  } catch (e) {
+    p.is_active = !next
+    toastError(e)
+  } finally {
+    updatingStyleIds.delete(p.id)
+  }
 }
 
 const styleToDelete = ref(null)
@@ -1409,7 +1465,10 @@ onBeforeUnmount(stopUsagePoll)
 .nav-item:focus-visible { outline: none; box-shadow: 0 0 0 3.5px var(--button-focus); }
 
 .settings-content { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.settings-scroll { height: 100%; overflow-y: auto; padding: 20px 28px 48px; animation: fadeUp 0.3s var(--ease-out); }
+.settings-scroll {
+  height: 100%; overflow-y: auto; overflow-anchor: none;
+  padding: 20px 28px 48px; animation: fadeUp 0.3s var(--ease-out);
+}
 /* 各分组卡片之间的间距（通用页内容语言/外观等） */
 .settings-scroll > .card + .card { margin-top: 14px; }
 /* 宽屏下内容列限宽居中，两侧留出呼吸空间 */
@@ -1639,8 +1698,13 @@ onBeforeUnmount(stopUsagePoll)
 }
 .cfg-model-star { fill: currentColor; }
 .config-empty { font-size: 12px; color: var(--text-3); padding: 14px 20px; }
-.config-switch { display: inline-flex; flex-shrink: 0; cursor: pointer; }
-.config-switch input:focus-visible + .switch { box-shadow: 0 0 0 3.5px var(--button-focus); }
+.config-switch {
+  display: inline-flex; flex-shrink: 0; cursor: pointer;
+  border: 0; padding: 0; background: transparent; color: inherit;
+  font: inherit;
+}
+.config-switch:focus-visible { outline: none; }
+.config-switch:focus-visible .switch { box-shadow: 0 0 0 3.5px var(--button-focus); }
 .btn-icon.btn-sm { width: 30px; min-width: 30px; height: 30px; min-height: 30px; }
 
 /* Agent */
