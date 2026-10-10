@@ -85,13 +85,25 @@
             </div>
             <p class="setup-desc">
               {{ t('settings.ai.quickDesc') }}
-              <a class="huobao-site-link" href="https://api.firemux.com" target="_blank" rel="noopener noreferrer">
+              <a class="huobao-site-link" :href="huobaoSiteUrl" target="_blank" rel="noopener noreferrer">
                 {{ t('settings.ai.getKey') }}
                 <ExternalLink :size="12" :stroke-width="1.8" />
               </a>
             </p>
             <div class="huobao-quick-row">
               <input v-model="huobaoApiKey" class="input" type="password" placeholder="Huobao API Key" />
+              <div class="lang-picker">
+                <button
+                  type="button"
+                  :class="['lang-option', { on: huobaoRegion === 'cn' }]"
+                  @click="huobaoRegion = 'cn'"
+                >{{ t('settings.ai.regionCn') }}</button>
+                <button
+                  type="button"
+                  :class="['lang-option', { on: huobaoRegion === 'com' }]"
+                  @click="huobaoRegion = 'com'"
+                >{{ t('settings.ai.regionCom') }}</button>
+              </div>
               <button class="btn btn-primary" :disabled="huobaoSaving" @click="applyHuobaoQuickConfig">
                 <Loader2 v-if="huobaoSaving" :size="13" class="animate-spin" />
                 <Sparkles v-else :size="13" />
@@ -698,7 +710,7 @@ import { providerIconUrl } from '~/composables/useProviderIcon'
 import { startTour, autoTour } from '~/composables/useTour'
 import { confirmUnifiedLanguage } from '~/composables/useUnifiedLanguage'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const showBrandImage = ref(true)
 const tab = ref('ai')
@@ -721,6 +733,9 @@ const cfgTesting = ref(false)
 const cfgTestResult = ref(null)
 const huobaoApiKey = ref('')
 const huobaoSaving = ref(false)
+// 火宝节点选择：默认跟随界面语言（中文→国内 .cn，其他→国外 .com），一键配置与取 Key 链接共用
+const huobaoRegion = ref(locale.value?.startsWith('zh') ? 'cn' : 'com')
+const huobaoSiteUrl = computed(() => `https://api.firemux.${huobaoRegion.value}`)
 const cfgForm = reactive({ name: '', provider: '', api_key: '', base_url: '', models: [], service_type: 'text', priority: 0, temperature: '' })
 // 模型标签编辑器：首位即默认模型；输入框支持回车添加、逗号/换行批量粘贴
 const modelInput = ref('')
@@ -779,15 +794,18 @@ const providerPresets = {
     comfyui: { label: '本地 ComfyUI · 双采流程', baseUrl: 'http://127.0.0.1:8188', models: ['zib+zit+最大程度保持原样双采+'] },
   },
 }
-const huobaoQuickConfigs = [
-  { service_type: 'text', provider: 'gemini', name: '火宝文本服务 · Gemini', base_url: 'https://api.firemux.com', model: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'], priority: 101 },
-  { service_type: 'text', provider: 'openai', name: '火宝文本服务 · OpenAI', base_url: 'https://api.firemux.com', model: ['deepseek-v4-pro', 'deepseek-v4-flash', 'gpt-5.6-terra'], priority: 100 },
-  { service_type: 'image', provider: 'openai', name: '火宝图片服务 · OpenAI', base_url: 'https://api.firemux.com', model: ['gpt-image-2'], priority: 99 },
-  { service_type: 'image', provider: 'gemini', name: '火宝图片服务 · Gemini', base_url: 'https://api.firemux.com', model: ['gemini-3-pro-image', 'gemini-3.1-flash-image'], priority: 97 },
-  { service_type: 'video', provider: 'aliyun', name: '火宝视频服务 · Wan 3.0', base_url: 'https://api.firemux.com/qwen', model: ['wan3.0-video', 'wan3.0-video-prime'], priority: 97 },
-  { service_type: 'video', provider: 'volcengine', name: '火宝视频服务 · Seedance', base_url: 'https://api.firemux.com/volcengine', model: ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-2-0-260128'], priority: 96 },
-  { service_type: 'video', provider: 'minimax', name: '火宝视频服务 · MiniMax', base_url: 'https://api.firemux.com/minimax', model: ['MiniMax-H3'], priority: 98 },
-]
+const huobaoQuickConfigs = computed(() => {
+  const base = huobaoSiteUrl.value
+  return [
+    { service_type: 'text', provider: 'gemini', name: '火宝文本服务 · Gemini', base_url: base, model: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'], priority: 101 },
+    { service_type: 'text', provider: 'openai', name: '火宝文本服务 · OpenAI', base_url: base, model: ['deepseek-v4-pro', 'deepseek-v4-flash', 'gpt-5.6-terra'], priority: 100 },
+    { service_type: 'image', provider: 'openai', name: '火宝图片服务 · OpenAI', base_url: base, model: ['gpt-image-2'], priority: 99 },
+    { service_type: 'image', provider: 'gemini', name: '火宝图片服务 · Gemini', base_url: base, model: ['gemini-3-pro-image', 'gemini-3.1-flash-image'], priority: 97 },
+    { service_type: 'video', provider: 'aliyun', name: '火宝视频服务 · Wan 3.0', base_url: `${base}/qwen`, model: ['wan3.0-video', 'wan3.0-video-prime'], priority: 97 },
+    { service_type: 'video', provider: 'volcengine', name: '火宝视频服务 · Seedance', base_url: `${base}/volcengine`, model: ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-2-0-260128'], priority: 96 },
+    { service_type: 'video', provider: 'minimax', name: '火宝视频服务 · MiniMax', base_url: `${base}/minimax`, model: ['MiniMax-H3'], priority: 98 },
+  ]
+})
 
 function byType(t) { return cfgs.value.filter(c => c.service_type === t) }
 function countActive(t) { return byType(t).filter(c => c.is_active).length }
@@ -870,7 +888,7 @@ async function applyHuobaoQuickConfig() {
   if (!apiKey) { toast.warning(t('settings.ai.apiKeyRequired')); return }
   huobaoSaving.value = true
   try {
-    for (const preset of huobaoQuickConfigs) {
+    for (const preset of huobaoQuickConfigs.value) {
       const payload = { ...preset, api_key: apiKey }
       const existing = cfgs.value.find(c => c.name === preset.name || (c.service_type === preset.service_type && c.provider === preset.provider && c.base_url === preset.base_url))
       if (existing) await aiConfigAPI.update(existing.id, payload)
@@ -1496,8 +1514,9 @@ onBeforeUnmount(stopUsagePoll)
 .huobao-site-link:hover { text-decoration: underline; }
 .huobao-quick-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
+  align-items: center;
 }
 .huobao-quick-models {
   margin-top: 14px;

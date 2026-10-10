@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ===== 前端构建：Nuxt generate 产出静态站点 =====
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:22-bookworm-slim AS frontend-build
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 # lockfile 的 resolved 可能指向带鉴权的私有 registry（开发者本机 .npmrc），镜像内会 401。
@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run generate
 
 # ===== 后端构建：安装依赖（含原生模块编译） =====
-FROM node:20-bookworm AS backend-build
+FROM node:22-bookworm AS backend-build
 WORKDIR /build/backend
 COPY backend/package.json backend/package-lock.json ./
 RUN node -e "const fs=require('fs');const l=JSON.parse(fs.readFileSync('package-lock.json'));for(const p of Object.values(l.packages||{}))delete p.resolved;fs.writeFileSync('package-lock.json',JSON.stringify(l,null,2))" \
@@ -23,15 +23,22 @@ COPY backend/ ./
 RUN npm prune --omit=dev && npm i tsx@^4.21.0 --no-save --no-audit --no-fund --registry=https://registry.npmjs.org
 
 # ===== 运行时 =====
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 ARG HUOBAO_VERSION=dev
 ENV NODE_ENV=production \
     HUOBAO_VERSION=${HUOBAO_VERSION} \
     PORT=5679 \
+    FFMPEG_BIN=/usr/bin/ffmpeg \
+    FFPROBE_BIN=/usr/bin/ffprobe \
     HUOBAO_DATA_DIR=/app/data \
     SQLITE_PATH=/app/data/huobao.sqlite3 \
     WORKSPACE_PATH=/app/data/workspace \
     FRONTEND_DIST=/app/frontend-dist
+
+# ffprobe-static 不包含 Linux ARM64 二进制；两个架构统一使用系统媒体工具。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=backend-build /build/backend/src ./backend/src

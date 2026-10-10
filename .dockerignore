@@ -17,3 +17,7 @@ data
 .env
 *.log
 .DS_Store
+
+# 桌面发布与密钥配置不参与服务端镜像构建
+desktop
+**/.env*

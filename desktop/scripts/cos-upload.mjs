@@ -57,7 +57,7 @@ function authorization(method, uriPathname) {
     + `&q-header-list=host&q-url-param-list=&q-signature=${signature}`
 }
 
-export async function cosPut(localFile, key, { cacheControl } = {}) {
+export async function cosPut(localFile, key, { cacheControl, contentType } = {}) {
   const body = fs.readFileSync(localFile)
   const uriPathname = `/${key.split('/').map(encodeURIComponent).join('/')}`
   const headers = {
@@ -67,6 +67,7 @@ export async function cosPut(localFile, key, { cacheControl } = {}) {
     'Content-MD5': crypto.createHash('md5').update(body).digest('base64'),
   }
   if (cacheControl) headers['Cache-Control'] = cacheControl
+  if (contentType) headers['Content-Type'] = contentType
 
   const res = await fetch(`https://${HOST}${uriPathname}`, {
     method: 'PUT',
