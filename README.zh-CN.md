@@ -120,6 +120,10 @@ data/       — 生成资源文件与 SQLite 数据库
 |---|---|---|
 | `SQLITE_PATH` | `<仓库根>/data/huobao.sqlite3` | SQLite 数据库文件位置 |
 | `PORT` | `5679` | 后端服务端口 |
+| `HUOBAO_HOST` / `HOST` | `0.0.0.0` | 后端监听网卡（`127.0.0.1` 可退回仅本机访问）。`HOST` 仅在取值为 IP/localhost 时生效——macOS(zsh) 等环境会把 `HOST` 设成机器名 |
+| `CORS_ORIGINS` | 本机 + 私有网段 | 跨域来源白名单（逗号分隔，`*` 表示任意来源；不配置时自动放行 localhost/10.x/172.16-31.x/192.168.x/*.local） |
+| `NUXT_HOST` / `NUXT_PORT` | `0.0.0.0` / `3013` | 前端开发服务器监听地址与端口 |
+| `HUOBAO_API_ORIGIN` | `http://localhost:5679` | 前端代理的后端地址（前后端不在同一台机器/容器时使用） |
 | `STORAGE_PATH` | `<仓库根>/data/static` | 生成文件存储目录 |
 | `HUOBAO_DATA_DIR` | — | 桌面版由 Electron 主进程注入（userData 数据根） |
 | `WORKSPACE_PATH` | `backend/workspace` | Agent 技能/提示词目录（桌面版指向 userData 可写副本） |
@@ -162,6 +166,10 @@ npm run dev
 - 前端地址: `http://localhost:3013`
 - 后端 API: `http://localhost:5679/api/v1`
 - 前端自动代理 `/api` 和 `/static` 到后端
+
+**局域网/其他设备访问**：前后端默认监听 `0.0.0.0`（所有网卡），启动日志会打印可用的局域网地址，同网段的手机/平板/其他电脑直接打开 `http://<本机IP>:3013` 即可，无需改代码。反向代理、内网穿透（frp / ngrok / Tailscale）同样可用——dev server 已关闭 Host 头校验，前端也支持用 `HUOBAO_API_ORIGIN` 指向别的机器上的后端。只想本机访问时：前端 `npm run dev:local`，后端加 `HUOBAO_HOST=127.0.0.1`。
+
+> Windows 首次以 `0.0.0.0` 启动时，若弹出防火墙提示请选择「允许访问」，否则其他设备连不上。
 
 #### 方式二：单服务模式
 

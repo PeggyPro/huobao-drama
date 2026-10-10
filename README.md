@@ -120,6 +120,10 @@ No config files — everything is set via environment variables (all have defaul
 |---|---|---|
 | `SQLITE_PATH` | `<repo>/data/huobao.sqlite3` | SQLite database file location |
 | `PORT` | `5679` | Backend service port |
+| `HUOBAO_HOST` / `HOST` | `0.0.0.0` | Backend listen interface (`127.0.0.1` restricts access to this machine). `HOST` is honored only when it is an IP/localhost — shells like macOS zsh set `HOST` to the machine name |
+| `CORS_ORIGINS` | localhost + private ranges | CORS allow-list, comma-separated (`*` allows any origin; when unset, localhost/10.x/172.16-31.x/192.168.x/*.local are allowed automatically) |
+| `NUXT_HOST` / `NUXT_PORT` | `0.0.0.0` / `3013` | Frontend dev-server listen host and port |
+| `HUOBAO_API_ORIGIN` | `http://localhost:5679` | Backend address proxied by the frontend (when frontend and backend are not on the same machine/container) |
 | `STORAGE_PATH` | `<repo>/data/static` | Generated-file storage directory |
 | `HUOBAO_DATA_DIR` | — | Injected by the Electron main process (userData data root) |
 | `WORKSPACE_PATH` | `backend/workspace` | Agent skills/prompts directory (desktop: writable copy under userData) |
@@ -162,6 +166,10 @@ npm run dev
 - Frontend: `http://localhost:3013`
 - Backend API: `http://localhost:5679/api/v1`
 - The frontend automatically proxies `/api` and `/static` to the backend
+
+**LAN / other-device access**: both servers listen on `0.0.0.0` (all interfaces) by default and the startup log prints the reachable LAN addresses, so a phone, tablet, or another computer on the same network can simply open `http://<your-ip>:3013` — no code changes needed. Reverse proxies and tunnels (frp / ngrok / Tailscale) work too: the dev server has its Host-header check disabled, and `HUOBAO_API_ORIGIN` lets the frontend target a backend on another machine. To restrict access to this machine only, use `npm run dev:local` for the frontend and `HUOBAO_HOST=127.0.0.1` for the backend.
+
+> On Windows, the first launch bound to `0.0.0.0` triggers a firewall prompt — choose "Allow access", otherwise other devices cannot connect.
 
 #### Option 2: Single-service mode
 

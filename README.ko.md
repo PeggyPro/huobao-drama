@@ -120,6 +120,10 @@ data/       — 생성된 에셋과 SQLite 데이터베이스
 |---|---|---|
 | `SQLITE_PATH` | `<저장소>/data/huobao.sqlite3` | SQLite 데이터베이스 파일 위치 |
 | `PORT` | `5679` | 백엔드 서비스 포트 |
+| `HUOBAO_HOST` / `HOST` | `0.0.0.0` | 백엔드 수신 인터페이스(`127.0.0.1`이면 로컬 전용). `HOST`는 IP/localhost일 때만 적용됩니다——macOS(zsh) 등은 `HOST`를 머신 이름으로 설정합니다 |
+| `CORS_ORIGINS` | localhost + 사설 대역 | CORS 허용 출처(쉼표 구분, `*`는 전체 허용. 미설정 시 localhost/10.x/172.16-31.x/192.168.x/*.local 자동 허용) |
+| `NUXT_HOST` / `NUXT_PORT` | `0.0.0.0` / `3013` | 프런트엔드 개발 서버 수신 주소와 포트 |
+| `HUOBAO_API_ORIGIN` | `http://localhost:5679` | 프런트엔드가 프록시할 백엔드 주소(다른 머신/컨테이너 구성용) |
 | `STORAGE_PATH` | `<저장소>/data/static` | 생성 파일 저장 디렉터리 |
 | `HUOBAO_DATA_DIR` | — | 데스크톱 버전에서 Electron 메인 프로세스가 주입(userData 데이터 루트) |
 | `WORKSPACE_PATH` | `backend/workspace` | Agent 스킬/프롬프트 디렉터리(데스크톱 버전은 userData의 쓰기 가능한 복사본) |
@@ -162,6 +166,10 @@ npm run dev
 - 프런트엔드 주소: `http://localhost:3013`
 - 백엔드 API: `http://localhost:5679/api/v1`
 - 프런트엔드가 `/api`와 `/static`을 백엔드로 자동 프록시
+
+**LAN·다른 기기에서 접속**：프런트엔드와 백엔드는 기본적으로 `0.0.0.0`(모든 인터페이스)에서 수신하며, 시작 로그에 접속 가능한 LAN 주소가 출력됩니다. 같은 네트워크의 스마트폰·태블릿·다른 PC에서 `http://<본인IP>:3013`을 열면 바로 사용할 수 있고 코드 수정은 필요 없습니다. 리버스 프록시와 터널(frp / ngrok / Tailscale)도 동작합니다(dev 서버는 Host 헤더 검증이 꺼져 있고, `HUOBAO_API_ORIGIN`으로 다른 머신의 백엔드를 지정할 수 있습니다). 로컬 전용으로 되돌리려면 프런트엔드는 `npm run dev:local`, 백엔드는 `HUOBAO_HOST=127.0.0.1`을 사용하세요.
+
+> Windows에서 처음 `0.0.0.0`으로 실행하면 방화벽 알림이 뜹니다. "액세스 허용"을 선택하지 않으면 다른 기기에서 접속할 수 없습니다.
 
 #### 방법 2: 단일 서비스 모드
 

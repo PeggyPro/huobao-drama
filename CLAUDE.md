@@ -19,13 +19,14 @@ configs/   — 遗留死配置，代码零引用
 ## Commands
 
 ### Backend (`backend/`)
-- `npm run dev` — tsx watch 开发服务（端口 5679）
+- `npm run dev` — tsx watch 开发服务（端口 5679；默认监听 `0.0.0.0` 从局域网/反代/穿透均可访问，`HUOBAO_HOST=127.0.0.1`（也认 `HOST`，但仅当其为 IP/localhost，避免与 shell 的机器名变量冲突）退回仅本机，跨域白名单用 `CORS_ORIGINS`，未配置时自动放行 localhost 与私有网段）
 - `npm start` — tsx 生产启动
 - `npm run typecheck` — TypeScript 类型检查
 - `npm run backfill-artwork` — 存量图片/视频补缩略图与海报帧
 
 ### Frontend (`frontend/`)
-- `npm run dev` — Vite 开发服务（端口 3013，代理 /api 与 /static 到 5679）
+- `npm run dev` — Vite 开发服务（端口 3013，代理 /api 与 /static 到 5679；默认监听 `0.0.0.0`，HMR 走当前页面 host，`allowedHosts: true` 已关闭 Host 头校验；后端在别的机器时用 `HUOBAO_API_ORIGIN`）
+- `npm run dev:local` — 同上但仅本机可访问（`--host localhost`）
 - `npm run generate` — 产出含 index.html 的静态站点（`.output/public`；`nuxt build` 不产 index.html，不能用于静态托管）
 
 ### Desktop (`desktop/`，根目录 `npm run dist` 串联全流程)

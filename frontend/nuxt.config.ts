@@ -1,9 +1,24 @@
 import { fileURLToPath } from 'node:url'
 
+// —— 网络访问配置 ——
+// 开发服务器默认监听 0.0.0.0：局域网 IP、内网域名、反向代理、内网穿透都能访问，
+// 不再只有 localhost:3013 可用。只想本机访问时设 NUXT_HOST=localhost。
+const devHost = process.env.NUXT_HOST || '0.0.0.0'
+const devPort = Number(process.env.NUXT_PORT || 3013)
+
+// 后端地址：默认本机 5679（Vite 代理在服务端转发，浏览器侧始终同源）。
+// 前后端不在同一台机器/容器时，用 HUOBAO_API_ORIGIN 指向真正的后端。
+const apiOrigin = (process.env.HUOBAO_API_ORIGIN || 'http://localhost:5679').replace(/\/+$/, '')
+
 export default defineNuxtConfig({
   srcDir: 'app/',
   ssr: false,
   devtools: { enabled: false },
+  // 监听所有网卡（0.0.0.0）；缺省时 Nuxt 只绑 localhost 并提示 "use --host to expose"
+  devServer: {
+    host: devHost,
+    port: devPort,
+  },
   experimental: {
     appManifest: false,
   },
@@ -38,9 +53,13 @@ export default defineNuxtConfig({
   },
   vite: {
     server: {
+      // 关闭 Vite 的 Host 头校验（DNS 重绑定保护）：允许用局域网域名 / 内网穿透域名
+      // （如 huobao.local、xxx.ngrok.io）访问，否则 dev server 会返回
+      // "Blocked request. This host is not allowed."。IP 直连不受影响。
+      allowedHosts: true,
       proxy: {
-        '/api': { target: 'http://localhost:5679', changeOrigin: true },
-        '/static': { target: 'http://localhost:5679', changeOrigin: true },
+        '/api': { target: apiOrigin, changeOrigin: true },
+        '/static': { target: apiOrigin, changeOrigin: true },
       },
     },
   },
