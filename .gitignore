@@ -14,6 +14,7 @@ dist/
 # Keep local workflow packs ignored, but track the Huobao Qwen API deliverable and its docs.
 comfyui_workflows/*
 artifacts
+.dsh-progress
 
 # Environment
 .env
