@@ -368,6 +368,42 @@ export const stylePresetSeeds = [
     prompt: 'contemporary Chinese guofeng illustration style, elegant hanfu-inspired costume design, flowing layered silhouettes and refined traditional accessories, clean expressive linework with softly rendered digital painting, subtle ink-wash motifs blended with modern cinematic composition, warm jade vermilion and antique gold palette, atmospheric moonlight and lantern glow, polished animated drama key-visual quality, consistent character design across shots, avoid generic fantasy armor, avoid western medieval styling, avoid photorealism, avoid plastic 3D look, avoid modern logos and casual clothing unless specified',
     description: '适合短剧海报的现代国风与汉服美学',
   },
+  // 漫剧视觉方向：水墨国风复用上方 shuimo，其余方向使用独立 key。
+  {
+    name: '半写实国漫 3D', value: 'donghua-3d', sortOrder: 15,
+    prompt: 'Chinese donghua 3D animation still, semi-realistic stylized characters with lifelike body proportions and refined sculpted facial features, expressive eyes and subtle facial acting, smooth natural skin shading with restrained subsurface scattering, individually defined hair strands, finely woven fabric and polished metal with physically based highlights, cinematic directional key light and delicate rim lighting, volumetric atmosphere and layered depth of field, restrained rich color grading, detailed dimensional environments, costumes and props appropriate to the story setting, consistent character design across shots, avoid flat 2D illustration, avoid chibi proportions, avoid exaggerated oversized anime eyes, avoid plastic waxy skin, avoid live-action photography, avoid game interface overlays',
+    description: '半写实国漫人物、精细服装与金属材质、电影感光影；适合古装宫廷、权谋与武侠漫剧',
+  },
+  {
+    name: '游戏 CG／游戏建模风', value: 'game-cg', sortOrder: 16,
+    prompt: 'high-end video game cinematic cutscene, real-time 3D engine rendering, clearly sculpted game-character models with defined silhouettes and coherent topology, stylized realistic anatomy, crisp physically based textures on armor fabric leather and stone, controlled specular highlights, directional cinematic lighting with ambient occlusion and atmospheric depth, richly detailed game-world environments, balanced cinematic color grading, legible character staging, costumes and props appropriate to the story setting, consistent character models and materials across shots, avoid flat anime line art, avoid painted paper texture, avoid chibi cartoon design, avoid low-poly unfinished assets, avoid live-action photography, avoid HUD health bars menus and game interface text',
+    description: '三维游戏建模与过场动画质感，强调角色轮廓、装备材质和场景空间',
+  },
+  {
+    name: '二维漫画／平涂动漫风', value: 'flat-anime', sortOrder: 17,
+    prompt: '2D hand-drawn comic animation still, clean readable contour line art, stylized expressive characters with consistent proportions, flat solid color fills and limited two-to-three-tone cel shading, clearly separated hard-edged shadow shapes, simplified material highlights, balanced vivid colors, drawn backgrounds with clear perspective and graphic shapes, readable animation keyframe composition, consistent character design and line weight across shots, avoid 3D CGI rendering, avoid photorealistic skin, avoid soft airbrushed gradients, avoid painterly brush texture, avoid heavy volumetric lighting, avoid speech bubbles captions and panel borders',
+    description: '清晰线稿、平面色块与分区阴影，呈现二维漫画和动画质感',
+  },
+  {
+    name: '柔光国漫插画风', value: 'soft-guoman', sortOrder: 18,
+    prompt: 'soft luminous Chinese donghua-inspired digital illustration, refined stylized character faces with elegant readable proportions, smooth clean delicate linework, softly blended color shading, gentle fabric folds and restrained material detail, broad diffused lighting with low-contrast shadows and subtle highlights, bright airy exposure with soft moderately desaturated colors, softly painted layered backgrounds, polished animated-drama illustration quality, costumes and props appropriate to the story setting, consistent character design across shots, avoid harsh chiaroscuro, avoid deep crushed blacks, avoid neon saturation, avoid photorealism, avoid sculpted 3D render look, avoid rough watercolor paper texture',
+    description: '明亮通透、低对比柔光与干净笔触，人物精致，适合细腻的情感与对话场景',
+  },
+  {
+    name: '强光影动漫风', value: 'dramatic-anime', sortOrder: 19,
+    prompt: 'dramatic cinematic anime illustration, confident clean linework with richly layered digital color shading, expressive stylized characters with stable anatomy, strong directional key lighting and sharp rim highlights, deep readable shadows with high light-dark contrast, vivid controlled saturated colors, atmospheric depth and environmental effects motivated by the scene, dynamic cinematic composition with clear focal hierarchy, detailed animated backgrounds, polished high-impact animation key visual, consistent character design across shots, avoid flat uniform lighting, avoid pale washed-out colors, avoid soft pastel haze, avoid photorealistic live action, avoid plastic 3D skin, avoid excessive bloom or effects obscuring faces, avoid adding combat magic or explosions unless specified',
+    description: '高对比明暗、鲜明色彩与轮廓光，强调动作、特效和戏剧张力',
+  },
+  {
+    name: '仿真人影视风', value: 'ai-live-action', sortOrder: 20,
+    prompt: 'photorealistic AI-generated cinematic drama still, believable human faces with natural asymmetry and realistic anatomy, detailed skin pores and subtle natural skin texture, realistic individual hair strands, physically plausible cloth leather metal and environmental materials, motivated film lighting with natural shadow falloff, lens-based perspective and restrained depth of field, true-to-life colors with cinematic color grading and subtle film grain, grounded detailed locations, wardrobe and props appropriate to the story setting, consistent character identity age facial structure and appearance across shots, avoid anime eyes, avoid cartoon proportions, avoid illustration outlines, avoid visible CGI or game-character look, avoid waxy plastic skin, avoid excessive beauty smoothing, avoid uncanny facial distortions',
+    description: 'AI 仿真人物与真实皮肤、服装和摄影光影，呈现接近实拍影视的画面',
+  },
+  {
+    name: '沙雕表情包风', value: 'meme-comic', sortOrder: 21,
+    prompt: 'comedic Chinese internet meme cartoon illustration, original expressive black-and-white panda-head meme characters on simplified cartoon bodies, bold economical black outlines, exaggerated readable eyebrows eyes and mouths, intentionally simple flat shapes and minimal shading, sparse muted-color cartoon backgrounds, playful visual humor conveyed through clear poses and facial expressions, readable uncluttered composition, consistent face design costume markers and body proportions across shots, avoid realistic anatomy and skin rendering, avoid polished 3D CGI, avoid elaborate painterly textures, avoid dramatic volumetric lighting, avoid intricate distracting backgrounds, avoid embedded captions speech bubbles watermarks and logos',
+    description: '熊猫头式夸张表情、简化人物与平面场景，适合搞笑吐槽和轻喜剧',
+  },
 ]
 
 /**
@@ -385,7 +421,7 @@ const LEGACY_SEED_PROMPTS: Record<string, string> = {
 /**
  * 已下架的种子预设 — 内容寻址删除：仅当库中行的 prompt 仍是种子原文
  * （未被用户编辑过）才删除；用户改过的同名行视为用户数据保留。
- * live（真人写实）：真人影像过不了平台真人内容审核，下架。
+ * 历史 live（真人写实）预设的清理规则保留；新「仿真人影视风」使用独立 key ai-live-action。
  */
 const REMOVED_SEED_PROMPTS: Record<string, string> = {
   live: 'ultra-realistic cinematic live-action look, professional film photography, natural skin tones with detailed pores and realistic texture, true human anatomy and proportions, shallow depth of field with creamy bokeh, cinematic three-point lighting, subtle film grain, 35mm lens cinematic framing, true-to-life color grading, detailed real-world environments, consistent actor appearance across shots, avoid cartoon or anime features, avoid 3D render look, avoid illustration style, avoid plastic waxy skin, avoid over-smoothing beauty filter',
