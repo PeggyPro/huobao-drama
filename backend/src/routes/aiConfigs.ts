@@ -5,9 +5,28 @@ import { success, notFound, created, badRequest, now } from '../utils/response.j
 import { toSnakeCase } from '../utils/transform.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
 import { isOfficialProvider, parseConfigTemperature } from '../services/ai.js'
+import { getTextProviderBaseUrl, normalizeTextAPIFormat, parseConfigAPIFormat } from '../services/text-providers.js'
+import { probeTextConnection } from '../services/text-probe.js'
 import { redactUrl, logTaskError, logTaskProgress, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
+
+function normalizeTextModels(models: unknown): string[] {
+  if (!Array.isArray(models) || !models.length || models.some(m => typeof m !== 'string' || !m.trim())) {
+    throw new Error('请至少添加一个有效的模型 ID')
+  }
+  return models.map(model => (model as string).trim())
+}
+
+function validateTextFields(baseUrl: unknown, models: unknown, provider: string, apiFormat: ReturnType<typeof normalizeTextAPIFormat>, temperature: number | null) {
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) throw new Error('请填写 Base URL')
+  getTextProviderBaseUrl({ provider, baseUrl, apiFormat })
+  const normalizedModels = normalizeTextModels(models)
+  if (apiFormat === 'anthropic' && temperature !== null && temperature > 1) {
+    throw new Error('Anthropic 原生接口的 Temperature 须为 0 到 1 之间的数字')
+  }
+  return normalizedModels
+}
 
 /** 归一化 temperature 入参：null=未设置；合法值 0~2；非法抛错 */
 function normalizeTemperature(v: any): number | null {
@@ -23,6 +42,7 @@ function withParsedFields(r: any) {
     ...toSnakeCase(r),
     model: r.model ? JSON.parse(r.model) : [],
     temperature: parseConfigTemperature(r.settings),
+    ...(r.serviceType === 'text' ? { api_format: parseConfigAPIFormat(r.provider || '', r.settings) } : {}),
   }
 }
 
@@ -158,16 +178,28 @@ app.post('/', async (c) => {
     }
   }
 
+  const settings: Record<string, unknown> = temperature !== null ? { temperature } : {}
+  let normalizedModels: string[] = Array.isArray(body.model) ? body.model : []
+  if (body.service_type === 'text') {
+    try {
+      const apiFormat = normalizeTextAPIFormat(body.provider, body.api_format)
+      normalizedModels = validateTextFields(body.base_url, body.model, body.provider, apiFormat, temperature)
+      settings.api_format = apiFormat
+    } catch (error) {
+      return badRequest(c, (error as Error).message)
+    }
+  }
+
   const res = await db.insert(schema.aiServiceConfigs).values({
     serviceType: body.service_type,
     provider: body.provider,
     name: body.name || `${body.provider}-${body.service_type}`,
     baseUrl: body.base_url || '',
     apiKey: body.api_key || '',
-    model: JSON.stringify(body.model || []),
+    model: JSON.stringify(normalizedModels),
     priority: body.priority || 0,
     isActive: true,
-    settings: temperature !== null ? JSON.stringify({ temperature }) : null,
+    settings: Object.keys(settings).length ? JSON.stringify(settings) : null,
     createdAt: ts,
     updatedAt: ts,
   })
@@ -189,6 +221,22 @@ app.post('/test', async (c) => {
   }
 
   const model = Array.isArray(body.model) ? body.model[0] : body.model
+  if (body.service_type === 'text') {
+    try {
+      const apiFormat = normalizeTextAPIFormat(body.provider, body.api_format)
+      const temperature = normalizeTemperature(body.temperature)
+      validateTextFields(body.base_url, Array.isArray(body.model) ? body.model : [body.model], body.provider, apiFormat, temperature)
+      const payload = await probeTextConnection({
+        provider: body.provider, baseUrl: body.base_url, apiKey: body.api_key || '',
+        model: model.trim(), apiFormat, temperature,
+      })
+      const log = payload.ok ? logTaskSuccess : logTaskError
+      log('AIConfig', 'text-probe-done', { provider: body.provider, status: payload.status, url: payload.url, apiFormat })
+      return success(c, payload)
+    } catch (error) {
+      return badRequest(c, (error as Error).message)
+    }
+  }
   const probe = buildProbe(body.service_type, body.provider, body.base_url, model, body.api_key)
   const probeUrl = redactUrl(probe.url)
 
@@ -278,22 +326,35 @@ app.put('/:id', async (c) => {
   if ('name' in body) updates.name = body.name
   if ('base_url' in body) updates.baseUrl = body.base_url
   if ('api_key' in body) updates.apiKey = body.api_key
-  if ('model' in body) updates.model = JSON.stringify(body.model)
+  if ('model' in body && serviceType !== 'text') updates.model = JSON.stringify(body.model)
   if ('priority' in body) updates.priority = body.priority
   if ('is_active' in body) updates.isActive = body.is_active
-  if ('temperature' in body) {
-    let temperature: number | null
+  if (['temperature', 'api_format', 'provider', 'service_type', 'base_url', 'model'].some(key => key in body)) {
+    // Merge protocol and temperature in one update, preserving other saved settings.
+    let settings: Record<string, unknown> = {}
     try {
-      temperature = normalizeTemperature(body.temperature)
-    } catch {
-      return badRequest(c, 'temperature 须为 0 到 2 之间的数字')
+      const parsed = existing.settings ? JSON.parse(existing.settings) : {}
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) settings = parsed
+    } catch { /* Older malformed settings are treated as empty. */ }
+    try {
+      const temperature = 'temperature' in body ? normalizeTemperature(body.temperature) : parseConfigTemperature(existing.settings)
+      if (temperature === null) delete settings.temperature
+      else settings.temperature = temperature
+      if (serviceType === 'text') {
+        const previousFormat = serviceType === existing.serviceType && provider === existing.provider
+          ? parseConfigAPIFormat(provider, existing.settings) : undefined
+        const apiFormat = normalizeTextAPIFormat(provider, 'api_format' in body ? body.api_format : previousFormat)
+        const models = 'model' in body ? body.model : JSON.parse(existing.model || '[]')
+        const normalizedModels = validateTextFields('base_url' in body ? body.base_url : existing.baseUrl, models, provider, apiFormat, temperature)
+        updates.model = JSON.stringify(normalizedModels)
+        settings.api_format = apiFormat
+      } else {
+        delete settings.api_format
+      }
+      updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
+    } catch (error) {
+      return badRequest(c, (error as Error).message)
     }
-    // 与已有 settings 合并，清空的 temperature 从 JSON 中移除
-    let settings: Record<string, any> = {}
-    try { settings = existing.settings ? JSON.parse(existing.settings) : {} } catch { settings = {} }
-    if (temperature === null) delete settings.temperature
-    else settings.temperature = temperature
-    updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
   }
 
   await db.update(schema.aiServiceConfigs).set(updates).where(eq(schema.aiServiceConfigs.id, id))

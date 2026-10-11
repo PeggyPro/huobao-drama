@@ -384,10 +384,221 @@
       "create": "Create",
       "created": "Skill created"
     },
+    "providers": {
+      "commonTitle": "Popular providers",
+      "browseAll": "Browse all {n} options",
+      "closeCatalog": "Close provider overview",
+      "catalogTitle": "Text model providers",
+      "catalogSubtitle": "{n} options · Select a provider to fill its preset",
+      "searchPlaceholder": "Search Claude, Qwen, DeepSeek…",
+      "searchLabel": "Search providers",
+      "searchHint": "Search by name or provider ID",
+      "all": "All",
+      "groups": {
+        "domestic": "China",
+        "international": "International",
+        "platform": "Platforms / local"
+      },
+      "optionCount": "{n} provider options",
+      "keyboardHint": "↑ ↓ Select · Enter Confirm",
+      "noMatch": "No matching providers. Try another name.",
+      "formatLabel": "Claude API format",
+      "formatHint": "For a relay, use the format specified by its documentation.",
+      "formats": {
+        "anthropic": "Anthropic native",
+        "openai": "OpenAI compatible",
+        "google": "Gemini native"
+      },
+      "getKey": "Get API key",
+      "modelDocs": "Model docs",
+      "showKey": "Show API key",
+      "hideKey": "Hide API key",
+      "defaultKeyPlaceholder": "Enter this provider’s API key",
+      "defaultKeyHint": "Use an API key issued by this provider or your selected relay.",
+      "defaultUrlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+      "customUrl": "Custom relay URL",
+      "modelsHint": "Models are editable documentation examples; check your account’s access. The first is the default. Click to pin; paste comma/newline-separated IDs to add in bulk.",
+      "customModelPlaceholder": "Enter a model ID, then press Enter",
+      "compatibilityKeyPlaceholder": "Enter your relay’s API key",
+      "compatibilityKeyHint": "Use the relay’s API key and model IDs.",
+      "compatibilityUrlHint": "Enter a Claude relay that supports the OpenAI-compatible format. The official Anthropic endpoint does not support this format.",
+      "compatibilityUrlPlaceholder": "https://relay.example.com/v1",
+      "credentialCleared": "The provider, API format or URL changed. Enter a key for the current endpoint.",
+      "testNotice": "Testing sends a short request to the first model and may use a few tokens.",
+      "testModel": "Test model",
+      "unsavedTitle": "Discard unsaved changes?",
+      "unsavedMessage": "Your configuration changes have not been saved. Closing this dialog will discard them permanently.",
+      "keepEditing": "Keep editing",
+      "discardChanges": "Discard changes",
+      "testSuccess": "The model responded successfully",
+      "testReachable": "Endpoint reachable, but model test failed. Check the key, permissions and model.",
+      "testFailed": "Model test failed",
+      "modelRequired": "Add at least one model first.",
+      "urlRequired": "Enter a Base URL first.",
+      "invalidUrl": "Enter a valid HTTP / HTTPS API URL and replace any workspace placeholders.",
+      "localNoKey": "Local, no key",
+      "urlCustomHint": "Custom URLs supported",
+      "savedLegacyProvider": "This provider is from an existing config. Selecting another applies its preset and clears the old key.",
+      "tempInvalid": "Temperature must be a number from 0 to {max}",
+      "catalog": {
+        "claude": {
+          "label": "Claude",
+          "short": "Claude",
+          "company": "Anthropic",
+          "keyHint": "Use an Anthropic API key for the official service, or a key issued by your relay.",
+          "urlHint": "Native format uses Anthropic Messages. A custom relay URL is supported.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "openai": {
+          "label": "OpenAI",
+          "short": "OpenAI",
+          "company": "GPT models",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "gemini": {
+          "label": "Gemini",
+          "short": "Gemini",
+          "company": "Google",
+          "keyHint": "Use a Google AI Studio API key. This endpoint does not use Vertex AI IAM credentials.",
+          "urlHint": "Gemini native format uses generateContent. The URL is editable.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "deepseek": {
+          "label": "DeepSeek",
+          "short": "DeepSeek",
+          "company": "DeepSeek",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "aliyun": {
+          "label": "Qwen",
+          "short": "Qwen",
+          "company": "Alibaba Cloud Model Studio",
+          "keyHint": "Match the key to your Model Studio workspace and region. Keys are not shared across regions.",
+          "urlHint": "Copy the workspace OpenAI-compatible URL from Model Studio and replace WorkspaceId. Existing URLs can also be entered manually.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "volcengine": {
+          "label": "Doubao",
+          "short": "Doubao",
+          "company": "Volcengine · ByteDance",
+          "keyHint": "Use an Ark API key and enable the model in the console first.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter an enabled model ID or ep-… endpoint ID"
+        },
+        "moonshot": {
+          "label": "Kimi",
+          "short": "Kimi",
+          "company": "Moonshot AI",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "zhipu": {
+          "label": "GLM",
+          "short": "GLM",
+          "company": "Zhipu AI · BigModel",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "This is the general API endpoint. For Coding Plan subscriptions, use the dedicated URL in your console.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "minimax": {
+          "label": "MiniMax",
+          "short": "MiniMax",
+          "company": "MiniMax",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "OpenAI-compatible URL for the China general API. Check the endpoint and permissions for subscription-specific models.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "xiaomi-token-plan-cn": {
+          "label": "Xiaomi MiMo Token Plan",
+          "short": "MiMo Token Plan",
+          "company": "Xiaomi · China plan",
+          "keyHint": "Use the China Token Plan key. Keep it separate from the pay-as-you-go API key.",
+          "urlHint": "China Token Plan endpoint. Do not append a model name.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "xiaomi": {
+          "label": "Xiaomi MiMo API",
+          "short": "MiMo API",
+          "company": "Xiaomi · Pay as you go",
+          "keyHint": "Use the MiMo pay-as-you-go API key. For Token Plan, select the other Xiaomi option.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "baidu": {
+          "label": "ERNIE",
+          "short": "ERNIE",
+          "company": "Baidu Cloud · Qianfan",
+          "keyHint": "Use a Qianfan API key, not a legacy access_token.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter an ERNIE or other model ID supported by Qianfan"
+        },
+        "hunyuan": {
+          "label": "Tencent Hunyuan",
+          "short": "Hunyuan",
+          "company": "Tencent",
+          "keyHint": "Use an API key, not Tencent Cloud SecretId / SecretKey.",
+          "urlHint": "Preset for existing Hunyuan API services. TokenHub users should check their console for the correct URL, model and integration format.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "xai": {
+          "label": "Grok",
+          "short": "Grok",
+          "company": "xAI",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Uses OpenAI-compatible Chat Completions. Choose a model supporting that endpoint.",
+          "modelPlaceholder": "Enter a Grok model ID available to your account"
+        },
+        "mistral": {
+          "label": "Mistral AI",
+          "short": "Mistral",
+          "company": "Mistral",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "cohere": {
+          "label": "Cohere",
+          "short": "Cohere",
+          "company": "Command models",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Uses the OpenAI compatibility endpoint. Keep the compatibility/v1 path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "siliconflow": {
+          "label": "SiliconFlow",
+          "short": "SiliconFlow",
+          "company": "SiliconFlow · China",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        },
+        "openrouter": {
+          "label": "OpenRouter",
+          "short": "OpenRouter",
+          "company": "Multi-model platform",
+          "keyHint": "Use an API key issued by this provider or your selected relay.",
+          "urlHint": "Enter the API base URL, including its version prefix if needed. Do not append a model name or request path.",
+          "modelPlaceholder": "Enter the complete provider/model-id from the model page"
+        },
+        "ollama": {
+          "label": "Ollama",
+          "short": "Ollama",
+          "company": "Local models",
+          "keyHint": "Local instances need no key by default; leave it blank. For remote instances, use their authentication settings.",
+          "urlHint": "Pull the model first. localhost refers to the machine running the backend, which may be a remote server.",
+          "modelPlaceholder": "Enter a model ID, then press Enter"
+        }
+      }
+    },
     "cfg": {
       "editTitle": "Edit Service Config",
       "addTitle": "Add {type} Service",
-      "sub": "Pick a template first — a sensible `Base URL` and default models will be filled in automatically.",
+      "sub": "Select a provider or template to fill its URL and example models. Adjust the fields to match your service.",
       "name": "Config name",
       "namePlaceholder": "e.g. Huobao default image service",
       "provider": "Provider",
@@ -400,7 +611,7 @@
       "modelChipHint": "Click to set as default (pin to top)",
       "tempHint": "blank = provider default",
       "tempPlaceholder": "e.g. 0.6",
-      "tempNote": "Some models enforce a fixed temperature (e.g. kimi-k2 only allows 0.6). If you get an invalid temperature error, set the value here.",
+      "tempNote": "Use the model’s supported range. Some models require a fixed value; leave blank for the provider default.",
       "test": "Test Config",
       "reachable": "Endpoint responded",
       "unreachable": "Endpoint failed the test",

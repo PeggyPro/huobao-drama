@@ -4,7 +4,8 @@
 import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { logTaskProgress, logTaskWarn } from '../utils/task-logger.js'
-import { joinProviderUrl } from './adapters/url.js'
+import { parseConfigAPIFormat, textProviders, type TextAPIFormat } from './text-providers.js'
+export { getTextProviderBaseUrl } from './text-providers.js'
 
 export type ServiceType = 'text' | 'image' | 'video'
 
@@ -15,6 +16,8 @@ export interface AIConfig {
   model: string
   /** 采样温度，null 表示不设置（跟随服务商默认）。存于 ai_service_configs.settings JSON */
   temperature?: number | null
+  /** Text wire format, persisted in settings.api_format; omitted for media services. */
+  apiFormat?: TextAPIFormat
 }
 
 /** 从 settings JSON 解析 temperature；非法值一律视为未设置 */
@@ -29,32 +32,14 @@ export function parseConfigTemperature(settingsRaw: string | null | undefined): 
 }
 
 export const officialProviders: Record<ServiceType, readonly string[]> = {
-  text: ['openai', 'gemini', 'volcengine', 'xiaomi-token-plan-cn', 'xiaomi'],
+  text: textProviders,
   image: ['openai', 'gemini', 'volcengine', 'comfyui'],
   video: ['volcengine', 'minimax', 'aliyun', 'comfyui'],
 }
 
 export function isOfficialProvider(serviceType?: string | null, provider?: string | null): boolean {
   const providers = officialProviders[serviceType as ServiceType]
-  return !!providers && providers.includes((provider || '').toLowerCase())
-}
-
-export function getTextProviderBaseUrl(config: AIConfig) {
-  const provider = config.provider.toLowerCase()
-
-  if (['openai', 'xiaomi-token-plan-cn', 'xiaomi'].includes(provider)) {
-    return joinProviderUrl(config.baseUrl, '/v1', '')
-  }
-
-  if (provider === 'gemini') {
-    return joinProviderUrl(config.baseUrl, '/v1beta', '')
-  }
-
-  if (provider === 'volcengine') {
-    return joinProviderUrl(config.baseUrl, '/api/v3', '')
-  }
-
-  return config.baseUrl
+  return !!providers && typeof provider === 'string' && providers.includes(provider.toLowerCase())
 }
 
 // Agent 多步循环会逐步重复解析同一配置，相同配置只打一次日志避免刷屏
@@ -79,6 +64,7 @@ function rowToConfig(row: typeof schema.aiServiceConfigs.$inferSelect): AIConfig
     apiKey: row.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(row.settings),
+    ...(row.serviceType === 'text' ? { apiFormat: parseConfigAPIFormat(row.provider || '', row.settings) } : {}),
   }
 }
 

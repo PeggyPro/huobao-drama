@@ -384,10 +384,221 @@
       "create": "创建",
       "created": "Skill 创建成功"
     },
+    "providers": {
+      "commonTitle": "常用服务商",
+      "browseAll": "查看全部 {n} 个选项",
+      "closeCatalog": "收起厂商总览",
+      "catalogTitle": "常见文本服务商",
+      "catalogSubtitle": "{n} 个配置选项 · 点击填入对应预设",
+      "searchPlaceholder": "搜索 Claude、通义、DeepSeek…",
+      "searchLabel": "搜索服务商",
+      "searchHint": "中文名、英文名或厂商标识",
+      "all": "全部",
+      "groups": {
+        "domestic": "国内厂商",
+        "international": "海外厂商",
+        "platform": "聚合平台 / 本地"
+      },
+      "optionCount": "{n} 个服务商选项",
+      "keyboardHint": "↑ ↓ 选择 · Enter 确认",
+      "noMatch": "没有找到匹配的服务商，试试其他名称。",
+      "formatLabel": "Claude 接口格式",
+      "formatHint": "使用中转地址时，按服务商文档选择格式。",
+      "formats": {
+        "anthropic": "Anthropic 原生",
+        "openai": "OpenAI 兼容",
+        "google": "Gemini 原生"
+      },
+      "getKey": "获取密钥",
+      "modelDocs": "模型文档",
+      "showKey": "显示密钥",
+      "hideKey": "隐藏密钥",
+      "defaultKeyPlaceholder": "输入该服务商的 API Key",
+      "defaultKeyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+      "defaultUrlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+      "customUrl": "自定义中转地址",
+      "modelsHint": "模型为可编辑的文档示例，请按账号实际支持维护。首位为默认；点击标签可置顶，支持逗号或换行批量添加。",
+      "customModelPlaceholder": "输入模型 ID，回车添加",
+      "compatibilityKeyPlaceholder": "输入中转平台的 API Key",
+      "compatibilityKeyHint": "使用中转平台颁发的 Key；模型 ID 也以该平台为准。",
+      "compatibilityUrlHint": "填写支持 Claude 的 OpenAI 兼容服务地址；Anthropic 官方地址不提供此格式。",
+      "compatibilityUrlPlaceholder": "https://relay.example.com/v1",
+      "credentialCleared": "服务商、接口格式或地址已改变，请重新填写与当前地址匹配的密钥。",
+      "testNotice": "测试会向第一个模型发送一条简短请求，可能消耗少量 Token。",
+      "testModel": "测试模型",
+      "unsavedTitle": "放弃未保存的修改？",
+      "unsavedMessage": "你填写的配置内容尚未保存。关闭弹窗后这些内容将丢失，无法恢复。",
+      "keepEditing": "继续编辑",
+      "discardChanges": "放弃修改",
+      "testSuccess": "模型已成功响应",
+      "testReachable": "端点可达，但模型测试未通过，请检查密钥、权限和模型。",
+      "testFailed": "模型测试未通过",
+      "modelRequired": "请先添加至少一个模型。",
+      "urlRequired": "请先填写 Base URL。",
+      "invalidUrl": "请输入有效的 HTTP / HTTPS 接口地址，并替换工作空间占位符。",
+      "localNoKey": "本地免密钥",
+      "urlCustomHint": "支持自定义地址",
+      "savedLegacyProvider": "当前为已有配置的服务商。选择新服务商会应用新预设并清空旧密钥。",
+      "tempInvalid": "Temperature 需为 0~{max} 的数字",
+      "catalog": {
+        "claude": {
+          "label": "Claude",
+          "short": "Claude",
+          "company": "Anthropic",
+          "keyHint": "官方服务使用 Anthropic API Key；中转服务使用该平台颁发的 Key。",
+          "urlHint": "原生格式使用 Anthropic Messages 接口，支持自定义中转地址。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "openai": {
+          "label": "OpenAI",
+          "short": "OpenAI",
+          "company": "GPT 系列",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "gemini": {
+          "label": "Gemini",
+          "short": "Gemini",
+          "company": "Google",
+          "keyHint": "使用 Google AI Studio API Key；此入口不使用 Vertex AI 的 IAM 凭据。",
+          "urlHint": "Gemini 原生格式使用 generateContent 接口，地址可编辑。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "deepseek": {
+          "label": "DeepSeek",
+          "short": "DeepSeek",
+          "company": "深度求索",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "aliyun": {
+          "label": "通义千问 Qwen",
+          "short": "通义千问",
+          "company": "阿里云百炼",
+          "keyHint": "Key 需与百炼工作空间和地域对应，不同地域的 Key 不通用。",
+          "urlHint": "从百炼控制台复制工作空间的 OpenAI 兼容地址，并替换 WorkspaceId。旧地址也可手动填写。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "volcengine": {
+          "label": "豆包 Doubao",
+          "short": "豆包",
+          "company": "火山引擎 · 字节跳动",
+          "keyHint": "使用方舟 API Key，并先在控制台开通所需模型。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入已开通的模型 ID 或 ep-… 接入点 ID"
+        },
+        "moonshot": {
+          "label": "Kimi",
+          "short": "Kimi",
+          "company": "月之暗面 · Moonshot",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "zhipu": {
+          "label": "智谱 GLM",
+          "short": "智谱",
+          "company": "智谱 AI · BigModel",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "此预设为通用 API。Coding Plan 等套餐请填写控制台对应的专用入口。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "minimax": {
+          "label": "MiniMax",
+          "short": "MiniMax",
+          "company": "稀宇科技",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "国内通用 API 的 OpenAI 兼容地址。套餐专属模型请核对对应入口及权限。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "xiaomi-token-plan-cn": {
+          "label": "小米 MiMo Token Plan",
+          "short": "小米 Token Plan",
+          "company": "小米 · 国内套餐",
+          "keyHint": "填写国内 Token Plan 专用 Key，与按量 API 的 Key 分开维护。",
+          "urlHint": "国内 Token Plan 专用地址，无需追加模型名。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "xiaomi": {
+          "label": "小米 MiMo API",
+          "short": "小米 MiMo API",
+          "company": "小米 · 按量计费",
+          "keyHint": "填写 MiMo 按量 API Key。Token Plan 套餐请选另一个小米入口。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "baidu": {
+          "label": "文心 ERNIE",
+          "short": "文心",
+          "company": "百度智能云 · 千帆",
+          "keyHint": "使用千帆 API Key，此兼容入口不填写旧版 access_token。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入千帆支持的 ERNIE 或其他模型 ID"
+        },
+        "hunyuan": {
+          "label": "腾讯混元",
+          "short": "混元",
+          "company": "腾讯 · Hunyuan",
+          "keyHint": "填写 API Key，不能直接填写腾讯云 SecretId / SecretKey。",
+          "urlHint": "此预设适用于已有的混元 API 服务。TokenHub 用户请按自己的控制台核对地址、模型与接入方式。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "xai": {
+          "label": "Grok",
+          "short": "Grok",
+          "company": "xAI",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "使用 OpenAI 兼容 Chat Completions 接口，请选择支持此接口的模型。",
+          "modelPlaceholder": "输入账号支持的 Grok 模型 ID"
+        },
+        "mistral": {
+          "label": "Mistral AI",
+          "short": "Mistral",
+          "company": "Mistral",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "cohere": {
+          "label": "Cohere",
+          "short": "Cohere",
+          "company": "Command 系列",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "使用 OpenAI compatibility 入口，请保留 compatibility/v1 路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "siliconflow": {
+          "label": "硅基流动",
+          "short": "硅基流动",
+          "company": "SiliconFlow · 国内站",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        },
+        "openrouter": {
+          "label": "OpenRouter",
+          "short": "OpenRouter",
+          "company": "多模型聚合",
+          "keyHint": "请使用此服务商或所选中转平台颁发的 API Key。",
+          "urlHint": "填写接口根地址，可保留版本前缀；不要追加模型名或具体调用路径。",
+          "modelPlaceholder": "输入平台模型页的完整 provider/model-id"
+        },
+        "ollama": {
+          "label": "Ollama",
+          "short": "Ollama",
+          "company": "本地模型",
+          "keyHint": "本地默认无认证，可留空；远程部署请按实际认证配置填写。",
+          "urlHint": "模型需已拉取。localhost 指运行后端的机器；服务器部署时不一定是你的电脑。",
+          "modelPlaceholder": "输入模型 ID，回车添加"
+        }
+      }
+    },
     "cfg": {
       "editTitle": "编辑服务配置",
       "addTitle": "添加{type}服务",
-      "sub": "推荐先选择模板，系统会自动填入更合理的 `Base URL` 与默认模型。",
+      "sub": "选择服务商或模板，填入对应地址和示例模型；所有字段均可按实际服务修改。",
       "name": "配置名称",
       "namePlaceholder": "如 火宝默认图像服务",
       "provider": "服务商",
@@ -400,7 +611,7 @@
       "modelChipHint": "点击设为默认（置顶）",
       "tempHint": "留空跟随服务商默认",
       "tempPlaceholder": "如 0.6",
-      "tempNote": "部分模型强制固定温度（如 kimi-k2 系只允许 0.6），报 invalid temperature 错误时在此填入对应值。",
+      "tempNote": "请按模型支持范围填写；部分模型使用固定温度，留空跟随服务商默认。",
       "test": "测试配置",
       "reachable": "端点已响应",
       "unreachable": "端点未通过测试",

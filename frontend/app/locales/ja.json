@@ -384,10 +384,221 @@
       "create": "作成",
       "created": "Skill を作成しました"
     },
+    "providers": {
+      "commonTitle": "よく使うプロバイダー",
+      "browseAll": "全 {n} 件を表示",
+      "closeCatalog": "一覧を閉じる",
+      "catalogTitle": "テキストモデルのプロバイダー",
+      "catalogSubtitle": "{n} 件の設定 · 選択するとプリセットを入力",
+      "searchPlaceholder": "Claude、Qwen、DeepSeek を検索…",
+      "searchLabel": "プロバイダーを検索",
+      "searchHint": "名前またはプロバイダー ID で検索",
+      "all": "すべて",
+      "groups": {
+        "domestic": "中国",
+        "international": "海外",
+        "platform": "集約サービス / ローカル"
+      },
+      "optionCount": "{n} 件のプロバイダー",
+      "keyboardHint": "↑ ↓ 選択 · Enter 決定",
+      "noMatch": "一致するプロバイダーがありません。別の名前で検索してください。",
+      "formatLabel": "Claude API 形式",
+      "formatHint": "中継サービスは、そのドキュメントに従って形式を選択してください。",
+      "formats": {
+        "anthropic": "Anthropic ネイティブ",
+        "openai": "OpenAI 互換",
+        "google": "Gemini ネイティブ"
+      },
+      "getKey": "キーを取得",
+      "modelDocs": "モデルの資料",
+      "showKey": "キーを表示",
+      "hideKey": "キーを隠す",
+      "defaultKeyPlaceholder": "このプロバイダーの API キーを入力",
+      "defaultKeyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+      "defaultUrlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+      "customUrl": "カスタム中継 URL",
+      "modelsHint": "モデルは編集可能な資料の例です。アカウントの利用権限を確認してください。先頭が既定です。クリックで先頭に移動、カンマや改行で一括追加できます。",
+      "customModelPlaceholder": "モデル ID を入力し、Enter で追加",
+      "compatibilityKeyPlaceholder": "中継サービスの API キーを入力",
+      "compatibilityKeyHint": "中継サービスが発行したキーとモデル ID を使用してください。",
+      "compatibilityUrlHint": "OpenAI 互換形式に対応した Claude 中継サービスの URL を入力してください。Anthropic 公式エンドポイントはこの形式に対応していません。",
+      "compatibilityUrlPlaceholder": "https://relay.example.com/v1",
+      "credentialCleared": "プロバイダー、API 形式、または URL が変わりました。現在の接続先用のキーを入力してください。",
+      "testNotice": "テストでは先頭のモデルに短いリクエストを送信し、少量のトークンを消費する場合があります。",
+      "testModel": "モデルをテスト",
+      "unsavedTitle": "保存されていない変更を破棄しますか？",
+      "unsavedMessage": "入力した設定内容はまだ保存されていません。ダイアログを閉じると、これらの内容は失われ、復元できません。",
+      "keepEditing": "編集を続ける",
+      "discardChanges": "変更を破棄",
+      "testSuccess": "モデルが正常に応答しました",
+      "testReachable": "接続先に到達しましたが、モデルのテストに失敗しました。キー、権限、モデルを確認してください。",
+      "testFailed": "モデルのテストに失敗しました",
+      "modelRequired": "モデルを少なくとも 1 つ追加してください。",
+      "urlRequired": "Base URL を入力してください。",
+      "invalidUrl": "有効な HTTP / HTTPS API URL を入力し、ワークスペースの仮の値を置き換えてください。",
+      "localNoKey": "ローカル・キー不要",
+      "urlCustomHint": "カスタム URL に対応",
+      "savedLegacyProvider": "既存設定のプロバイダーです。別のものを選ぶとプリセットが適用され、古いキーが消去されます。",
+      "tempInvalid": "Temperature は 0〜{max} の数値で入力してください",
+      "catalog": {
+        "claude": {
+          "label": "Claude",
+          "short": "Claude",
+          "company": "Anthropic",
+          "keyHint": "公式サービスには Anthropic API キー、中継サービスにはそのサービスのキーを使用してください。",
+          "urlHint": "ネイティブ形式は Anthropic Messages を使用します。中継 URL も指定できます。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "openai": {
+          "label": "OpenAI",
+          "short": "OpenAI",
+          "company": "GPT モデル",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "gemini": {
+          "label": "Gemini",
+          "short": "Gemini",
+          "company": "Google",
+          "keyHint": "Google AI Studio API キーを使用します。Vertex AI の IAM 認証情報は使用しません。",
+          "urlHint": "Gemini ネイティブ形式は generateContent を使用します。URL は編集できます。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "deepseek": {
+          "label": "DeepSeek",
+          "short": "DeepSeek",
+          "company": "DeepSeek",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "aliyun": {
+          "label": "通義千問 Qwen",
+          "short": "Qwen",
+          "company": "Alibaba Cloud 百錬",
+          "keyHint": "百錬のワークスペースとリージョンに対応するキーを使用してください。異なるリージョンでキーは共有できません。",
+          "urlHint": "百錬コンソールからワークスペースの OpenAI 互換 URL をコピーし、WorkspaceId を置き換えてください。既存 URL も手動入力できます。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "volcengine": {
+          "label": "豆包 Doubao",
+          "short": "Doubao",
+          "company": "Volcengine · ByteDance",
+          "keyHint": "Ark API キーを使用し、先にコンソールでモデルを有効にしてください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "有効なモデル ID または ep-… 接続先 ID を入力"
+        },
+        "moonshot": {
+          "label": "Kimi",
+          "short": "Kimi",
+          "company": "Moonshot AI",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "zhipu": {
+          "label": "智譜 GLM",
+          "short": "GLM",
+          "company": "Zhipu AI · BigModel",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "一般 API 用の URL です。Coding Plan などはコンソールの専用 URL を使用してください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "minimax": {
+          "label": "MiniMax",
+          "short": "MiniMax",
+          "company": "MiniMax",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "中国の一般 API 用 OpenAI 互換 URL です。プラン専用モデルの接続先と権限を確認してください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "xiaomi-token-plan-cn": {
+          "label": "Xiaomi MiMo Token Plan",
+          "short": "MiMo Token Plan",
+          "company": "小米 · 中国プラン",
+          "keyHint": "中国 Token Plan 専用キーを使用してください。従量課金 API のキーとは別です。",
+          "urlHint": "中国 Token Plan 専用 URL です。モデル名は追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "xiaomi": {
+          "label": "Xiaomi MiMo API",
+          "short": "MiMo API",
+          "company": "小米 · 従量課金",
+          "keyHint": "MiMo 従量課金 API キーを使用してください。Token Plan はもう一方の Xiaomi を選択します。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "baidu": {
+          "label": "文心 ERNIE",
+          "short": "ERNIE",
+          "company": "Baidu Cloud · 千帆",
+          "keyHint": "千帆 API キーを使用してください。旧 access_token は使用しません。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "千帆に対応する ERNIE などのモデル ID を入力"
+        },
+        "hunyuan": {
+          "label": "Tencent 混元",
+          "short": "混元",
+          "company": "Tencent",
+          "keyHint": "API キーを使用してください。Tencent Cloud SecretId / SecretKey は直接入力できません。",
+          "urlHint": "既存の Hunyuan API 用プリセットです。TokenHub 利用者はコンソールで URL、モデル、接続形式を確認してください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "xai": {
+          "label": "Grok",
+          "short": "Grok",
+          "company": "xAI",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "OpenAI 互換 Chat Completions を使用します。この形式に対応したモデルを選んでください。",
+          "modelPlaceholder": "アカウントで利用できる Grok モデル ID を入力"
+        },
+        "mistral": {
+          "label": "Mistral AI",
+          "short": "Mistral",
+          "company": "Mistral",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "cohere": {
+          "label": "Cohere",
+          "short": "Cohere",
+          "company": "Command モデル",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "OpenAI compatibility 接続先を使用します。compatibility/v1 パスを維持してください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "siliconflow": {
+          "label": "SiliconFlow",
+          "short": "SiliconFlow",
+          "company": "SiliconFlow · 中国",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        },
+        "openrouter": {
+          "label": "OpenRouter",
+          "short": "OpenRouter",
+          "company": "複数モデル集約",
+          "keyHint": "このプロバイダー、または選択した中継サービスが発行した API キーを使用してください。",
+          "urlHint": "必要に応じてバージョンの接頭辞を含む API ベース URL を入力してください。モデル名や呼び出しパスは追加しないでください。",
+          "modelPlaceholder": "モデルページの完全な provider/model-id を入力"
+        },
+        "ollama": {
+          "label": "Ollama",
+          "short": "Ollama",
+          "company": "ローカルモデル",
+          "keyHint": "ローカルの既定では認証不要なので空欄にできます。リモートでは実際の認証設定に従ってください。",
+          "urlHint": "先にモデルをダウンロードしてください。localhost はバックエンドの稼働マシンを指し、リモートサーバーの場合もあります。",
+          "modelPlaceholder": "モデル ID を入力し、Enter で追加"
+        }
+      }
+    },
     "cfg": {
       "editTitle": "サービス設定を編集",
       "addTitle": "{type}サービスを追加",
-      "sub": "まずテンプレートを選ぶと、適切な `Base URL` とデフォルトモデルが自動入力されます。",
+      "sub": "プロバイダーまたはテンプレートを選択すると URL とモデル例が入力されます。実際のサービスに合わせて編集してください。",
       "name": "設定名",
       "namePlaceholder": "例：火宝デフォルト画像サービス",
       "provider": "プロバイダー",
@@ -400,7 +611,7 @@
       "modelChipHint": "クリックでデフォルトに設定（先頭へ）",
       "tempHint": "空欄でプロバイダーのデフォルトに従う",
       "tempPlaceholder": "例：0.6",
-      "tempNote": "温度が固定されたモデル（例：kimi-k2 系は 0.6 のみ）があります。invalid temperature エラーが出た場合はここに値を入力してください。",
+      "tempNote": "モデルの対応範囲で入力してください。固定値が必要な場合もあります。空欄でプロバイダーの既定値に従います。",
       "test": "設定をテスト",
       "reachable": "エンドポイントが応答しました",
       "unreachable": "エンドポイントのテストに失敗しました",

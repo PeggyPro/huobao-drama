@@ -114,7 +114,7 @@
               <div v-for="q in huobaoQuickConfigs" :key="q.name" class="hqm-row">
                 <span class="hqm-label">{{ serviceMeta[q.service_type].label }}</span>
                 <span class="hqm-provider">
-                  <img v-if="providerIconUrl(q.provider)" :src="providerIconUrl(q.provider)" class="hqm-provider-icon" alt="" />
+                  <img v-if="providerIconUrl(q.provider, q.service_type)" :src="providerIconUrl(q.provider, q.service_type)" class="hqm-provider-icon" alt="" />
                   {{ q.provider }}
                 </span>
                 <span class="hqm-models mono">
@@ -154,14 +154,14 @@
                 <button class="btn btn-ghost btn-sm ml-auto" @click="startAddCfg(st.type)"><Plus :size="13" /> {{ t('common.add') }}</button>
               </div>
               <div v-for="c in byType(st.type)" :key="c.id" class="config-row">
-                <div class="provider-badge" :class="{ 'has-icon': !!providerIconUrl(c.provider) }" :data-provider="c.provider">
-                  <img v-if="providerIconUrl(c.provider)" class="provider-badge-icon" :src="providerIconUrl(c.provider)" alt="" />
+                <div class="provider-badge" :class="{ 'has-icon': !!providerIconUrl(c.provider, c.service_type) }" :data-provider="c.provider">
+                  <img v-if="providerIconUrl(c.provider, c.service_type)" class="provider-badge-icon" :src="providerIconUrl(c.provider, c.service_type)" alt="" />
                   <template v-else>{{ c.provider.slice(0, 1).toUpperCase() }}</template>
                 </div>
                 <div class="config-main">
                   <div class="config-line">
                     <span class="config-name">{{ c.name || `${c.provider}-${c.service_type}` }}</span>
-                    <span :class="['tag', c.api_key ? 'tag-success' : 'tag-error']">{{ c.api_key ? t('settings.ai.hasKey') : t('settings.ai.noKey') }}</span>
+                    <span :class="['tag', c.api_key || c.provider === 'ollama' ? 'tag-success' : 'tag-error']">{{ c.api_key ? t('settings.ai.hasKey') : c.provider === 'ollama' ? t('settings.providers.localNoKey') : t('settings.ai.noKey') }}</span>
                     <span v-if="!c.is_active" class="tag">{{ t('settings.common.disabled') }}</span>
                   </div>
                   <div class="config-models">
@@ -495,92 +495,17 @@
       </div>
     </div>
 
-    <!-- AI Config Dialog -->
-    <div v-if="cfgDialog" class="overlay" @click.self="cfgDialog = false">
-      <form class="dialog config-dialog" @submit.prevent="saveCfg">
-        <div class="dialog-head">
-          <div>
-            <div class="dialog-title">{{ cfgEditId ? t('settings.cfg.editTitle') : t('settings.cfg.addTitle', { type: serviceMeta[cfgForm.service_type].label }) }}</div>
-            <div class="dialog-sub">{{ t('settings.cfg.sub') }}</div>
-          </div>
-          <span class="tag tag-accent ml-auto">{{ serviceMeta[cfgForm.service_type].label }}</span>
-        </div>
-        <div class="dialog-body config-dialog-body">
-          <div class="preset-picker">
-            <button
-              v-for="preset in presetsByType(cfgForm.service_type)"
-              :key="`${cfgForm.service_type}-${preset.provider}`"
-              type="button"
-              class="preset-pill"
-              @click="applyProviderPreset(cfgForm.service_type, preset.provider)"
-            >
-              {{ preset.label }}
-            </button>
-          </div>
-          <label class="field">
-            <span class="field-label">{{ t('settings.cfg.name') }}</span>
-            <input v-model="cfgForm.name" class="input" :placeholder="t('settings.cfg.namePlaceholder')" />
-          </label>
-          <label class="field"><span class="field-label">{{ t('settings.cfg.provider') }}</span>
-            <BaseSelect v-model="cfgForm.provider" :options="providerSelectOptions" :placeholder="t('settings.cfg.providerPlaceholder')" searchable />
-          </label>
-          <label class="field">
-            <span class="field-label">{{ t('settings.cfg.priority') }}</span>
-            <input v-model.number="cfgForm.priority" class="input" type="number" min="0" max="999" />
-            <span class="field-hint">{{ t('settings.cfg.priorityHint') }}</span>
-          </label>
-          <label class="field"><span class="field-label">API Key</span><input v-model="cfgForm.api_key" class="input" type="password" placeholder="sk-..." /></label>
-          <label class="field"><span class="field-label">Base URL</span><input v-model="cfgForm.base_url" class="input" placeholder="https://..." /></label>
-          <div class="field">
-            <span class="field-label">{{ t('settings.cfg.models') }}</span>
-            <div v-if="cfgForm.models.length" class="model-chips">
-              <span
-                v-for="(m, i) in cfgForm.models" :key="`${m}-${i}`"
-                :class="['model-chip', { 'is-default': i === 0 }]"
-                :title="t('settings.cfg.modelChipHint')"
-                @click="pinModelTop(i)"
-              >
-                {{ m }}<em v-if="i === 0">{{ t('common.default') }}</em>
-                <button type="button" class="model-chip-x" :title="t('common.delete')" @click.stop="removeModel(i)"><X :size="11" /></button>
-              </span>
-            </div>
-            <div class="model-add-row">
-              <input
-                v-model="modelInput" class="input" :placeholder="t('settings.cfg.modelPlaceholder')"
-                @keydown.enter.prevent="addModel"
-                @paste="onModelPaste"
-              />
-              <button type="button" class="btn btn-sm" :disabled="!modelInput.trim()" @click="addModel">{{ t('common.add') }}</button>
-            </div>
-            <span class="field-hint">{{ t('settings.cfg.modelsHint') }}</span>
-          </div>
-          <label v-if="cfgForm.service_type === 'text'" class="field">
-            <span class="field-label">Temperature <span class="dim">({{ t('settings.cfg.tempHint') }})</span></span>
-            <input v-model="cfgForm.temperature" class="input" type="number" step="0.1" min="0" max="2" :placeholder="t('settings.cfg.tempPlaceholder')" />
-            <span class="field-hint">{{ t('settings.cfg.tempNote') }}</span>
-          </label>
-          <div v-if="cfgTestResult" class="test-result" :class="{ ok: cfgTestResult.reachable, bad: !cfgTestResult.reachable }">
-            <div class="test-result-head">
-              <span class="tag" :class="cfgTestResult.reachable ? 'tag-success' : 'tag-error'">{{ cfgTestResult.status || 'ERROR' }}</span>
-              <span>{{ cfgTestResult.message }}</span>
-            </div>
-            <div class="mono test-result-url">{{ cfgTestResult.method }} {{ cfgTestResult.url }}</div>
-            <div v-if="cfgTestResult.response_preview" class="mono test-result-preview">{{ cfgTestResult.response_preview }}</div>
-          </div>
-        </div>
-        <div class="dialog-foot">
-          <button type="button" class="btn btn-ghost test-draft-btn" :disabled="cfgTesting" @click="testDraftCfg">
-            <Loader2 v-if="cfgTesting" :size="12" class="animate-spin" />
-            <span v-else>{{ t('settings.cfg.test') }}</span>
-          </button>
-          <button type="button" class="btn" @click="cfgDialog = false">{{ t('common.cancel') }}</button>
-          <button type="submit" class="btn btn-primary">{{ t('common.save') }}</button>
-        </div>
-      </form>
-    </div>
+    <AIServiceConfigDialog
+      v-if="cfgDialog"
+      :config="cfgDraft"
+      :service-type="cfgServiceType"
+      :focus-test="cfgFocusTest"
+      @close="cfgDialog = false"
+      @saved="onCfgSaved"
+    />
 
     <!-- Add Skill Dialog -->
-    <div v-if="addSkillDialog" class="overlay" @click.self="addSkillDialog = false">
+    <div v-if="addSkillDialog" class="overlay">
       <form class="dialog skill-dialog" @submit.prevent="confirmAddSkill">
         <div class="dialog-head">
           <div class="dialog-title">{{ t('settings.skills.addTitle', { agent: selectedAgentLabel }) }}</div>
@@ -607,7 +532,7 @@
     </div>
 
     <!-- Style Preset Dialog -->
-    <div v-if="styleDialog" class="overlay" @click.self="styleDialog = false">
+    <div v-if="styleDialog" class="overlay">
       <form class="dialog config-dialog" @submit.prevent="saveStyle">
         <div class="dialog-head">
           <div>
@@ -696,9 +621,10 @@
 </template>
 
 <script setup>
-import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles, Palette, ExternalLink, Star, HardDrive, Database, RefreshCw, Download, Languages, SunMoon, X } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles, Palette, ExternalLink, Star, HardDrive, Database, RefreshCw, Download, Languages, SunMoon } from 'lucide-vue-next'
 import { nextTick } from 'vue'
-import BaseSelect from '~/components/BaseSelect.vue'
+import AIServiceConfigDialog from '~/components/AIServiceConfigDialog.vue'
+import { resolveTextApiFormat } from '~/utils/textProviderCatalog'
 import { toast } from 'vue-sonner'
 import { toastError } from '~/composables/useToast'
 import { useI18n } from 'vue-i18n'
@@ -728,77 +654,30 @@ const cfgs = ref([])
 const settingsScrollEl = ref(null)
 const updatingCfgIds = reactive(new Set())
 const cfgDialog = ref(false)
-const cfgEditId = ref(null)
-const cfgTesting = ref(false)
-const cfgTestResult = ref(null)
+const cfgDraft = ref(null)
+const cfgServiceType = ref('text')
+const cfgFocusTest = ref(false)
 const huobaoApiKey = ref('')
 const huobaoSaving = ref(false)
 // 火宝节点选择：默认跟随界面语言（中文→国内 .cn，其他→国外 .com），一键配置与取 Key 链接共用
 const huobaoRegion = ref(locale.value?.startsWith('zh') ? 'cn' : 'com')
 const huobaoSiteUrl = computed(() => `https://api.firemux.${huobaoRegion.value}`)
-const cfgForm = reactive({ name: '', provider: '', api_key: '', base_url: '', models: [], service_type: 'text', priority: 0, temperature: '' })
-// 模型标签编辑器：首位即默认模型；输入框支持回车添加、逗号/换行批量粘贴
-const modelInput = ref('')
-function addModel() {
-  const names = modelInput.value.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
-  for (const n of names) if (!cfgForm.models.includes(n)) cfgForm.models.push(n)
-  modelInput.value = ''
-}
-function onModelPaste(e) {
-  const text = e.clipboardData?.getData('text') || ''
-  if (!/[,，\n]/.test(text)) return // 单模型走默认粘贴
-  e.preventDefault()
-  for (const n of text.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)) {
-    if (!cfgForm.models.includes(n)) cfgForm.models.push(n)
-  }
-}
-function removeModel(i) { cfgForm.models.splice(i, 1) }
-function pinModelTop(i) {
-  if (i <= 0) return
-  const [m] = cfgForm.models.splice(i, 1)
-  cfgForm.models.unshift(m)
-}
 // 服务类型 label/desc 渲染时求值（语言切换即时生效），type 为逻辑值
 const serviceTypes = computed(() => [
   { type: 'text', label: t('common.serviceType.text') },
   { type: 'image', label: t('common.serviceType.image') },
   { type: 'video', label: t('common.serviceType.video') },
 ])
-const providers = ['gemini', 'openai', 'volcengine', 'minimax', 'aliyun', 'comfyui']
-const textProviders = [...providers.filter(p => p !== 'comfyui'), 'xiaomi-token-plan-cn', 'xiaomi']
-const providerSelectOptions = computed(() => {
-  const availableProviders = cfgForm.service_type === 'text' ? textProviders : providers
-  return availableProviders.map(p => ({ label: p, value: p }))
-})
 const serviceMeta = computed(() => ({
   text: { label: t('common.serviceType.text'), desc: t('settings.ai.meta.text') },
   image: { label: t('common.serviceType.image'), desc: t('settings.ai.meta.image') },
   video: { label: t('common.serviceType.video'), desc: t('settings.ai.meta.video') },
 }))
-const providerPresets = {
-  text: {
-    gemini: { label: 'Gemini 官方', baseUrl: 'https://generativelanguage.googleapis.com', models: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'] },
-    openai: { label: 'OpenAI 官方', baseUrl: 'https://api.openai.com', models: ['deepseek-v4-pro', 'gpt-5.6-terra'] },
-    'xiaomi-token-plan-cn': { label: '小米 MiMo Token Plan', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'] },
-    xiaomi: { label: '小米 MiMo API', baseUrl: 'https://api.xiaomimimo.com/v1', models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'] },
-  },
-  image: {
-    gemini: { label: 'Gemini 官方', baseUrl: 'https://generativelanguage.googleapis.com', models: ['gemini-3-pro-image', 'gemini-3.1-flash-image'] },
-    openai: { label: 'OpenAI 官方', baseUrl: 'https://api.openai.com', models: ['gpt-image-2'] },
-    comfyui: { label: '本地 ComfyUI · Qwen Image 2.1', baseUrl: 'http://127.0.0.1:8188', models: ['huobao_qwen_image_2_1_api', 'V4-09_Z-Image_Turbo_文生图_4K'] },
-  },
-  video: {
-    aliyun: { label: '阿里云百炼 Wan 3.0', baseUrl: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com', models: ['wan3.0-video', 'wan3.0-video-prime'] },
-    volcengine: { label: 'Seedance 2.0 官方', baseUrl: 'https://ark.cn-beijing.volces.com', models: ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-2-0-260128'] },
-    minimax: { label: 'MiniMax H3 官方', baseUrl: 'https://api.minimaxi.com', models: ['MiniMax-H3'] },
-    comfyui: { label: '本地 ComfyUI · 双采流程', baseUrl: 'http://127.0.0.1:8188', models: ['zib+zit+最大程度保持原样双采+'] },
-  },
-}
 const huobaoQuickConfigs = computed(() => {
   const base = huobaoSiteUrl.value
   return [
-    { service_type: 'text', provider: 'gemini', name: '火宝文本服务 · Gemini', base_url: base, model: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'], priority: 101 },
-    { service_type: 'text', provider: 'openai', name: '火宝文本服务 · OpenAI', base_url: base, model: ['deepseek-v4-pro', 'deepseek-v4-flash', 'gpt-5.6-terra'], priority: 100 },
+    { service_type: 'text', provider: 'gemini', api_format: 'google', name: '火宝文本服务 · Gemini', base_url: base, model: ['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3-flash-preview'], priority: 101 },
+    { service_type: 'text', provider: 'openai', api_format: 'openai', name: '火宝文本服务 · OpenAI', base_url: base, model: ['deepseek-v4-pro', 'deepseek-v4-flash', 'gpt-5.6-terra'], priority: 100 },
     { service_type: 'image', provider: 'openai', name: '火宝图片服务 · OpenAI', base_url: base, model: ['gpt-image-2'], priority: 99 },
     { service_type: 'image', provider: 'gemini', name: '火宝图片服务 · Gemini', base_url: base, model: ['gemini-3-pro-image', 'gemini-3.1-flash-image'], priority: 97 },
     { service_type: 'video', provider: 'aliyun', name: '火宝视频服务 · Wan 3.0', base_url: `${base}/qwen`, model: ['wan3.0-video', 'wan3.0-video-prime'], priority: 97 },
@@ -810,20 +689,6 @@ const huobaoQuickConfigs = computed(() => {
 function byType(t) { return cfgs.value.filter(c => c.service_type === t) }
 function countActive(t) { return byType(t).filter(c => c.is_active).length }
 function fmtModel(m) { return Array.isArray(m) ? m.join(', ') : m || '—' }
-function presetsByType(type) {
-  const group = providerPresets[type] || {}
-  return Object.entries(group).map(([provider, preset]) => ({ provider, ...preset }))
-}
-function applyProviderPreset(type, provider) {
-  const preset = providerPresets[type]?.[provider]
-  if (!preset) return
-  cfgForm.provider = provider
-  cfgForm.base_url = preset.baseUrl
-  cfgForm.models = [...preset.models]
-  // 配置名持久化进 DB：用 provider 英文 + 服务类型英文标识拼，不随界面语言漂移
-  cfgForm.name = `${preset.label}-${type}`
-}
-
 async function loadCfgs() { try { cfgs.value = await aiConfigAPI.list() } catch (e) { toastError(e) } }
 
 // ===== 默认模型选择 =====
@@ -846,7 +711,7 @@ async function setDefaultModel(type, c, m) {
   try {
     const models = [m, ...(Array.isArray(c.model) ? c.model : []).filter(x => x !== m)]
     const maxPriority = Math.max(0, ...cfgs.value.filter(x => x.service_type === type).map(x => x.priority || 0))
-    const payload = { model: models }
+    const payload = { model: models, ...(c.service_type === 'text' ? { api_format: resolveTextApiFormat(c.provider, c.api_format) } : {}) }
     if ((c.priority || 0) < maxPriority) payload.priority = maxPriority + 1
     if (!c.is_active) payload.is_active = true // 停用配置无法成为默认,选择即启用
     await aiConfigAPI.update(c.id, payload)
@@ -874,7 +739,7 @@ async function toggleCfg(c) {
     })
   }
   try {
-    await aiConfigAPI.update(c.id, { is_active: next })
+    await aiConfigAPI.update(c.id, { is_active: next, ...(c.service_type === 'text' ? { api_format: resolveTextApiFormat(c.provider, c.api_format) } : {}) })
   } catch (e) {
     c.is_active = !next
     toastError(e)
@@ -903,72 +768,25 @@ async function applyHuobaoQuickConfig() {
     huobaoSaving.value = false
   }
 }
-function startAddCfg(t) {
-  cfgEditId.value = null
-  cfgTestResult.value = null
-  Object.assign(cfgForm, { name: '', provider: '', api_key: '', base_url: '', models: [], service_type: t, priority: 0, temperature: '' })
-  const firstPreset = presetsByType(t)[0]
-  if (firstPreset) applyProviderPreset(t, firstPreset.provider)
+function startAddCfg(type) {
+  cfgDraft.value = null
+  cfgServiceType.value = type
+  cfgFocusTest.value = false
   cfgDialog.value = true
 }
-function startEditCfg(c) {
-  cfgEditId.value = c.id
-  cfgTestResult.value = null
-  Object.assign(cfgForm, {
-    name: c.name || '',
-    provider: c.provider,
-    api_key: c.api_key || '',
-    base_url: c.base_url || '',
-    models: Array.isArray(c.model) ? [...c.model] : String(c.model || '').split(',').map(s => s.trim()).filter(Boolean),
-    service_type: c.service_type,
-    priority: c.priority ?? 0,
-    temperature: c.temperature ?? '',
-  })
+function startEditCfg(config) {
+  cfgDraft.value = config
+  cfgServiceType.value = config.service_type
+  cfgFocusTest.value = false
   cfgDialog.value = true
 }
-async function testCfgPayload(payload) {
-  cfgTesting.value = true
-  try {
-    cfgTestResult.value = await aiConfigAPI.test(payload)
-    if (cfgTestResult.value.reachable) toast.success(t('settings.cfg.reachable'))
-    else toast.warning(t('settings.cfg.unreachable'))
-  } catch (e) {
-    toastError(e)
-  } finally {
-    cfgTesting.value = false
-  }
+function testExistingCfg(config) {
+  startEditCfg(config)
+  cfgFocusTest.value = true
 }
-async function testDraftCfg() {
-  await testCfgPayload({
-    service_type: cfgForm.service_type,
-    provider: cfgForm.provider,
-    api_key: cfgForm.api_key,
-    base_url: cfgForm.base_url,
-    model: [...cfgForm.models],
-  })
-}
-async function testExistingCfg(c) {
-  startEditCfg(c)
-  await testCfgPayload({
-    service_type: c.service_type,
-    provider: c.provider,
-    api_key: c.api_key || '',
-    base_url: c.base_url || '',
-    model: Array.isArray(c.model) ? c.model : [],
-  })
-}
-async function saveCfg() {
-  if (!cfgForm.provider) { toast.warning(t('settings.cfg.providerRequired')); return }
-  const models = [...cfgForm.models]
-  const temperature = cfgForm.temperature === '' || cfgForm.temperature === null ? null : Number(cfgForm.temperature)
-  if (temperature !== null && (!Number.isFinite(temperature) || temperature < 0 || temperature > 2)) {
-    toast.warning(t('settings.cfg.tempInvalid')); return
-  }
-  try {
-    if (cfgEditId.value) await aiConfigAPI.update(cfgEditId.value, { name: cfgForm.name, provider: cfgForm.provider, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature })
-    else await aiConfigAPI.create({ service_type: cfgForm.service_type, provider: cfgForm.provider, name: cfgForm.name || `${cfgForm.provider}-${cfgForm.service_type}`, api_key: cfgForm.api_key, base_url: cfgForm.base_url, model: models, priority: cfgForm.priority, temperature })
-    cfgDialog.value = false; toast.success(t('common.saved')); loadCfgs()
-  } catch (e) { toastError(e) }
+function onCfgSaved() {
+  cfgDialog.value = false
+  loadCfgs()
 }
 
 // ===== Agent Configs =====

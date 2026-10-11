@@ -2,38 +2,39 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { runInNewContext } from 'node:vm'
+import { loadTs } from './helpers/load-ts.mjs'
+
+const { MEDIA_PROVIDER_PRESETS } = loadTs('app/utils/mediaProviderPresets.ts')
 
 const settingsPage = readFileSync(new URL('../app/pages/settings.vue', import.meta.url), 'utf8')
 const aiConfigRoute = readFileSync(new URL('../../backend/src/routes/aiConfigs.ts', import.meta.url), 'utf8')
 const volcengineAdapter = readFileSync(new URL('../../backend/src/services/adapters/volcengine-video.ts', import.meta.url), 'utf8')
 
 test('video presets default to direct Seedance 2.0 generation', () => {
-  const combined = `${settingsPage}\n${aiConfigRoute}\n${volcengineAdapter}`
+  const combined = `${JSON.stringify(MEDIA_PROVIDER_PRESETS)}\n${settingsPage}\n${aiConfigRoute}\n${volcengineAdapter}`
   assert.doesNotMatch(combined, /doubao-seedance-1-5-pro-251215/)
-  assert.match(settingsPage, /Seedance 2\.0/)
-  assert.match(settingsPage, /doubao-seedance-2-0-260128/)
-  assert.match(settingsPage, /doubao-seedance-2-0-fast-260128/)
-  assert.match(settingsPage, /doubao-seedance-2-0-mini-260615/)
+  const seedance = MEDIA_PROVIDER_PRESETS.video.volcengine
+  assert.match(seedance.label, /Seedance 2\.0/)
+  assert.deepEqual(seedance.models, ['doubao-seedance-2-0-mini-260615', 'doubao-seedance-2-0-fast-260128', 'doubao-seedance-2-0-260128'])
 })
 
 test('video presets use official provider endpoints', () => {
-  const presetsStart = settingsPage.indexOf('const providerPresets = {')
-  const quickStart = settingsPage.indexOf('const huobaoQuickConfigs = [')
-  const providerPresets = settingsPage.slice(presetsStart, quickStart)
-  assert.doesNotMatch(providerPresets, /api\.firemux\.com/)
-  assert.match(settingsPage, /https:\/\/ark\.cn-beijing\.volces\.com/)
-  assert.match(providerPresets, /https:\/\/\{WorkspaceId\}\.cn-beijing\.maas\.aliyuncs\.com/)
-  assert.doesNotMatch(settingsPage, /https:\/\/dashscope\.aliyuncs\.com/)
-  assert.doesNotMatch(settingsPage, /https:\/\/api\.vidu\.com/)
+  assert.equal(MEDIA_PROVIDER_PRESETS.video.volcengine.baseUrl, 'https://ark.cn-beijing.volces.com')
+  assert.equal(MEDIA_PROVIDER_PRESETS.video.aliyun.baseUrl, 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com')
+  assert.equal(MEDIA_PROVIDER_PRESETS.video.minimax.baseUrl, 'https://api.minimaxi.com')
+  assert.doesNotMatch(JSON.stringify(MEDIA_PROVIDER_PRESETS), /api\.firemux\.|https:\/\/dashscope\.aliyuncs\.com|https:\/\/api\.vidu\.com/)
 })
 
-test('Wan 3.0 quick preset targets the Qwen gateway namespace', () => {
-  const quickStart = settingsPage.indexOf('const huobaoQuickConfigs = [')
-  const quickConfigs = settingsPage.slice(quickStart)
-  const wanPreset = quickConfigs.match(/\{ service_type: 'video', provider: 'aliyun',[^\r\n]+/)?.[0] || ''
-  assert.match(wanPreset, /base_url:\s*'https:\/\/api\.firemux\.com\/qwen'/)
-  assert.match(wanPreset, /'wan3\.0-video-prime'/)
-  assert.match(wanPreset, /'wan3\.0-video'/)
+test('Wan 3.0 quick preset targets the selected region Qwen gateway namespace', () => {
+  const start = settingsPage.indexOf('const huobaoQuickConfigs = computed(')
+  assert.notEqual(start, -1)
+  const source = settingsPage.slice(start, settingsPage.indexOf('\n})', start) + 3)
+  for (const region of ['cn', 'com']) {
+    const presets = runInNewContext(`${source};huobaoQuickConfigs`, { computed: fn => fn(), huobaoSiteUrl: { value: `https://api.firemux.${region}` } })
+    const wan = presets.find(p => p.service_type === 'video' && p.provider === 'aliyun')
+    assert.equal(wan.base_url, `https://api.firemux.${region}/qwen`)
+    assert.deepEqual([...wan.model], ['wan3.0-video', 'wan3.0-video-prime'])
+  }
 })
 
 // Exercise the page's actual request/validation helpers with mocked assets and API.

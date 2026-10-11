@@ -1,8 +1,9 @@
 /**
- * 厂商图标 — 双主题本地托管（app/public/icons/{light,dark}/，源自 chatfire-gateway）
+ * 厂商图标 — 文本品牌来自 app/public/provider-icons/（LobeHub，MIT），媒体保留现有双主题图标
  * resolvedTheme 是模块级 computed，模板中调用本函数会随主题切换响应式更新
  */
 import { resolvedTheme } from '~/composables/useTheme'
+import { textProviderById } from '~/utils/textProviderCatalog'
 
 const FILENAMES: Record<string, string> = {
   openai: 'openai.png',
@@ -24,8 +25,16 @@ const FILENAMES: Record<string, string> = {
 }
 
 /** provider → 当前主题下的图标 URL；未知厂商返回 undefined（调用方回退字母徽标） */
-export function providerIconUrl(provider?: string | null): string | undefined {
-  const file = FILENAMES[(provider || '').toLowerCase()]
+export function providerIconUrl(provider?: string | null, serviceType?: string): string | undefined {
+  const id = (provider || '').toLowerCase()
+  const brand = textProviderById(id === 'qwen' ? 'aliyun' : id === 'doubao' ? 'volcengine' : id)
+  // Keep the existing Volcengine mark for media; text uses the reviewed Doubao mark.
+  if (brand && !(id === 'volcengine' && serviceType !== 'text')) {
+    if (id === 'moonshot') return '/provider-icons/kimi-color-badge.svg'
+    const directory = brand.mono && resolvedTheme.value === 'dark' ? 'dark/' : ''
+    return `/provider-icons/${directory}${brand.icon}.svg`
+  }
+  const file = FILENAMES[id]
   return file ? `/icons/${resolvedTheme.value}/${file}` : undefined
 }
 
@@ -43,6 +52,12 @@ const MODEL_PROVIDER_HINTS: [RegExp, string][] = [
   [/qwen|^wan[\d.-]/i, 'qwen'],
   [/glm|zhipu|chatglm/i, 'zhipu'],
   [/grok/i, 'xai'],
+  [/mimo/i, 'xiaomi'],
+  [/minimax/i, 'minimax'],
+  [/ernie/i, 'baidu'],
+  [/hunyuan/i, 'hunyuan'],
+  [/mistral|mixtral|codestral|devstral/i, 'mistral'],
+  [/^command[-_]/i, 'cohere'],
   [/^(gpt|chatgpt|o[1-9])/i, 'openai'],
 ]
 

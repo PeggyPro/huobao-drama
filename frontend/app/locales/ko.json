@@ -384,10 +384,221 @@
       "create": "생성",
       "created": "Skill이 생성되었습니다"
     },
+    "providers": {
+      "commonTitle": "자주 쓰는 제공업체",
+      "browseAll": "전체 {n}개 보기",
+      "closeCatalog": "제공업체 목록 닫기",
+      "catalogTitle": "텍스트 모델 제공업체",
+      "catalogSubtitle": "{n}개 옵션 · 제공업체를 선택하여 프리셋 입력",
+      "searchPlaceholder": "Claude, Qwen, DeepSeek 검색…",
+      "searchLabel": "제공업체 검색",
+      "searchHint": "이름 또는 제공업체 ID로 검색",
+      "all": "전체",
+      "groups": {
+        "domestic": "중국",
+        "international": "해외",
+        "platform": "통합 플랫폼 / 로컬"
+      },
+      "optionCount": "제공업체 {n}개",
+      "keyboardHint": "↑ ↓ 선택 · Enter 확인",
+      "noMatch": "일치하는 제공업체가 없습니다. 다른 이름으로 검색하세요.",
+      "formatLabel": "Claude API 형식",
+      "formatHint": "중계 서비스를 사용하면 해당 문서에 따라 형식을 선택하세요.",
+      "formats": {
+        "anthropic": "Anthropic 기본",
+        "openai": "OpenAI 호환",
+        "google": "Gemini 기본"
+      },
+      "getKey": "키 발급",
+      "modelDocs": "모델 문서",
+      "showKey": "키 표시",
+      "hideKey": "키 숨기기",
+      "defaultKeyPlaceholder": "이 제공업체의 API 키 입력",
+      "defaultKeyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+      "defaultUrlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+      "customUrl": "사용자 지정 중계 URL",
+      "modelsHint": "모델은 편집 가능한 문서 예시이며 계정의 이용 권한을 확인해야 합니다. 첫 번째가 기본 모델입니다. 클릭하여 맨 앞으로 이동하고 쉼표/줄바꿈으로 일괄 추가할 수 있습니다.",
+      "customModelPlaceholder": "모델 ID 입력 후 Enter로 추가",
+      "compatibilityKeyPlaceholder": "중계 서비스의 API 키 입력",
+      "compatibilityKeyHint": "중계 서비스에서 발급한 키와 모델 ID를 사용하세요.",
+      "compatibilityUrlHint": "OpenAI 호환 형식을 지원하는 Claude 중계 서비스 주소를 입력하세요. Anthropic 공식 주소는 이 형식을 지원하지 않습니다.",
+      "compatibilityUrlPlaceholder": "https://relay.example.com/v1",
+      "credentialCleared": "제공업체, API 형식 또는 URL이 변경되었습니다. 현재 주소에 맞는 키를 입력하세요.",
+      "testNotice": "테스트는 첫 번째 모델에 짧은 요청을 보내며 소량의 토큰을 사용할 수 있습니다.",
+      "testModel": "모델 테스트",
+      "unsavedTitle": "저장되지 않은 변경 사항을 버릴까요?",
+      "unsavedMessage": "입력한 설정 내용이 아직 저장되지 않았습니다. 대화 상자를 닫으면 이 내용은 사라지며 복구할 수 없습니다.",
+      "keepEditing": "계속 편집",
+      "discardChanges": "변경 사항 버리기",
+      "testSuccess": "모델이 정상적으로 응답했습니다",
+      "testReachable": "주소에 연결했지만 모델 테스트에 실패했습니다. 키, 권한, 모델을 확인하세요.",
+      "testFailed": "모델 테스트 실패",
+      "modelRequired": "먼저 모델을 하나 이상 추가하세요.",
+      "urlRequired": "먼저 Base URL을 입력하세요.",
+      "invalidUrl": "유효한 HTTP / HTTPS API URL을 입력하고 작업 공간 자리표시자를 바꾸세요.",
+      "localNoKey": "로컬, 키 불필요",
+      "urlCustomHint": "사용자 지정 URL 지원",
+      "savedLegacyProvider": "기존 설정의 제공업체입니다. 다른 제공업체를 선택하면 프리셋을 적용하고 이전 키를 지웁니다.",
+      "tempInvalid": "Temperature는 0~{max} 사이의 숫자여야 합니다",
+      "catalog": {
+        "claude": {
+          "label": "Claude",
+          "short": "Claude",
+          "company": "Anthropic",
+          "keyHint": "공식 서비스는 Anthropic API 키, 중계 서비스는 해당 서비스에서 발급한 키를 사용하세요.",
+          "urlHint": "기본 형식은 Anthropic Messages를 사용하며 사용자 지정 중계 URL도 지원합니다.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "openai": {
+          "label": "OpenAI",
+          "short": "OpenAI",
+          "company": "GPT 모델",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "gemini": {
+          "label": "Gemini",
+          "short": "Gemini",
+          "company": "Google",
+          "keyHint": "Google AI Studio API 키를 사용하세요. Vertex AI IAM 인증 정보는 사용하지 않습니다.",
+          "urlHint": "Gemini 기본 형식은 generateContent를 사용합니다. URL은 수정할 수 있습니다.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "deepseek": {
+          "label": "DeepSeek",
+          "short": "DeepSeek",
+          "company": "DeepSeek",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "aliyun": {
+          "label": "Qwen",
+          "short": "Qwen",
+          "company": "Alibaba Cloud Model Studio",
+          "keyHint": "Model Studio 작업 공간과 리전에 맞는 키를 사용하세요. 리전 간에 키를 공유할 수 없습니다.",
+          "urlHint": "Model Studio에서 작업 공간의 OpenAI 호환 URL을 복사하고 WorkspaceId를 바꾸세요. 기존 URL도 직접 입력할 수 있습니다.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "volcengine": {
+          "label": "Doubao",
+          "short": "Doubao",
+          "company": "Volcengine · ByteDance",
+          "keyHint": "Ark API 키를 사용하고 먼저 콘솔에서 모델을 활성화하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "활성 모델 ID 또는 ep-… 엔드포인트 ID 입력"
+        },
+        "moonshot": {
+          "label": "Kimi",
+          "short": "Kimi",
+          "company": "Moonshot AI",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "zhipu": {
+          "label": "GLM",
+          "short": "GLM",
+          "company": "Zhipu AI · BigModel",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "일반 API용 URL입니다. Coding Plan 등은 콘솔의 전용 URL을 사용하세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "minimax": {
+          "label": "MiniMax",
+          "short": "MiniMax",
+          "company": "MiniMax",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "중국 일반 API의 OpenAI 호환 URL입니다. 요금제 전용 모델은 엔드포인트와 권한을 확인하세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "xiaomi-token-plan-cn": {
+          "label": "Xiaomi MiMo Token Plan",
+          "short": "MiMo Token Plan",
+          "company": "샤오미 · 중국 요금제",
+          "keyHint": "중국 Token Plan 전용 키를 사용하세요. 종량제 API 키와 별도로 관리합니다.",
+          "urlHint": "중국 Token Plan 전용 URL입니다. 모델 이름을 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "xiaomi": {
+          "label": "Xiaomi MiMo API",
+          "short": "MiMo API",
+          "company": "샤오미 · 종량제",
+          "keyHint": "MiMo 종량제 API 키를 사용하세요. Token Plan은 다른 샤오미 옵션을 선택하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "baidu": {
+          "label": "ERNIE",
+          "short": "ERNIE",
+          "company": "Baidu Cloud · Qianfan",
+          "keyHint": "Qianfan API 키를 사용하세요. 이전 access_token은 사용하지 않습니다.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "Qianfan에서 지원하는 ERNIE 등 모델 ID 입력"
+        },
+        "hunyuan": {
+          "label": "Tencent Hunyuan",
+          "short": "Hunyuan",
+          "company": "텐센트",
+          "keyHint": "API 키를 사용하세요. Tencent Cloud SecretId / SecretKey를 직접 입력할 수 없습니다.",
+          "urlHint": "기존 Hunyuan API 서비스용 프리셋입니다. TokenHub 사용자는 콘솔에서 URL, 모델, 연결 형식을 확인하세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "xai": {
+          "label": "Grok",
+          "short": "Grok",
+          "company": "xAI",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "OpenAI 호환 Chat Completions를 사용합니다. 이 형식을 지원하는 모델을 선택하세요.",
+          "modelPlaceholder": "계정에서 사용할 수 있는 Grok 모델 ID 입력"
+        },
+        "mistral": {
+          "label": "Mistral AI",
+          "short": "Mistral",
+          "company": "Mistral",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "cohere": {
+          "label": "Cohere",
+          "short": "Cohere",
+          "company": "Command 모델",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "OpenAI compatibility 엔드포인트를 사용하며 compatibility/v1 경로를 유지해야 합니다.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "siliconflow": {
+          "label": "SiliconFlow",
+          "short": "SiliconFlow",
+          "company": "SiliconFlow · 중국",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        },
+        "openrouter": {
+          "label": "OpenRouter",
+          "short": "OpenRouter",
+          "company": "다중 모델 플랫폼",
+          "keyHint": "이 제공업체 또는 선택한 중계 서비스에서 발급한 API 키를 사용하세요.",
+          "urlHint": "필요한 버전 접두사를 포함한 API 기본 URL을 입력하세요. 모델 이름이나 호출 경로를 덧붙이지 마세요.",
+          "modelPlaceholder": "모델 페이지의 전체 provider/model-id 입력"
+        },
+        "ollama": {
+          "label": "Ollama",
+          "short": "Ollama",
+          "company": "로컬 모델",
+          "keyHint": "로컬은 기본적으로 인증이 없어 비워 둘 수 있습니다. 원격은 실제 인증 설정에 맞게 입력하세요.",
+          "urlHint": "먼저 모델을 내려받으세요. localhost는 백엔드가 실행되는 컴퓨터이며 원격 서버일 수도 있습니다.",
+          "modelPlaceholder": "모델 ID 입력 후 Enter로 추가"
+        }
+      }
+    },
     "cfg": {
       "editTitle": "서비스 설정 편집",
       "addTitle": "{type} 서비스 추가",
-      "sub": "먼저 템플릿을 선택하면 적절한 `Base URL`과 기본 모델이 자동으로 입력됩니다.",
+      "sub": "제공업체 또는 템플릿을 선택하면 URL과 모델 예시가 입력됩니다. 실제 서비스에 맞게 수정하세요.",
       "name": "설정 이름",
       "namePlaceholder": "예: 화바오 기본 이미지 서비스",
       "provider": "제공업체",
@@ -400,7 +611,7 @@
       "modelChipHint": "클릭하여 기본값으로 설정(맨 앞으로)",
       "tempHint": "비워 두면 제공업체 기본값을 따름",
       "tempPlaceholder": "예: 0.6",
-      "tempNote": "온도가 고정된 모델(예: kimi-k2 계열은 0.6만 허용)이 있습니다. invalid temperature 오류가 발생하면 여기에 값을 입력하세요.",
+      "tempNote": "모델의 지원 범위에 맞게 입력하세요. 고정값이 필요한 모델도 있습니다. 비워 두면 제공업체 기본값을 사용합니다.",
       "test": "설정 테스트",
       "reachable": "엔드포인트가 응답했습니다",
       "unreachable": "엔드포인트 테스트에 실패했습니다",

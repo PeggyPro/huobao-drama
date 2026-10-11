@@ -18,6 +18,8 @@ export interface PopoverOptions {
   minWidth?: number
   maxHeight?: number
   viewportMargin?: number
+  /** Constrain long menus to the available space after deciding placement. */
+  fitViewport?: boolean
 }
 
 export interface PopoverReturn {
@@ -73,6 +75,10 @@ export function usePopover(opts: PopoverOptions = {}): PopoverReturn {
         ...panelStyle.value,
         top: `${Math.max(margin, rect.top - h - offset)}px`,
       }
+    }
+    if (opts.fitViewport) {
+      const available = Math.max(0, (placement.value === 'top' ? above : below) - offset)
+      panelStyle.value = { ...panelStyle.value, maxHeight: `${Math.min(maxHeight, available)}px` }
     }
   }
 
