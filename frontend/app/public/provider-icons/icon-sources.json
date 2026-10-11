@@ -1,0 +1,98 @@
+{
+  "package": "@lobehub/icons-static-svg",
+  "version": "1.95.1",
+  "license": "MIT",
+  "repository": "https://github.com/lobehub/lobe-icons",
+  "assets": [
+    {
+      "name": "claude-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/claude-color.svg",
+      "file": "icons/claude-color.svg"
+    },
+    {
+      "name": "cohere-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/cohere-color.svg",
+      "file": "icons/cohere-color.svg"
+    },
+    {
+      "name": "deepseek-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/deepseek-color.svg",
+      "file": "icons/deepseek-color.svg"
+    },
+    {
+      "name": "doubao-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/doubao-color.svg",
+      "file": "icons/doubao-color.svg"
+    },
+    {
+      "name": "gemini-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/gemini-color.svg",
+      "file": "icons/gemini-color.svg"
+    },
+    {
+      "name": "grok",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/grok.svg",
+      "file": "icons/grok.svg"
+    },
+    {
+      "name": "hunyuan-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/hunyuan-color.svg",
+      "file": "icons/hunyuan-color.svg"
+    },
+    {
+      "name": "kimi-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/kimi-color.svg",
+      "file": "icons/kimi-color.svg"
+    },
+    {
+      "name": "minimax-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/minimax-color.svg",
+      "file": "icons/minimax-color.svg"
+    },
+    {
+      "name": "mistral-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/mistral-color.svg",
+      "file": "icons/mistral-color.svg"
+    },
+    {
+      "name": "ollama",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/ollama.svg",
+      "file": "icons/ollama.svg"
+    },
+    {
+      "name": "openai",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/openai.svg",
+      "file": "icons/openai.svg"
+    },
+    {
+      "name": "openrouter",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/openrouter.svg",
+      "file": "icons/openrouter.svg"
+    },
+    {
+      "name": "qwen-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/qwen-color.svg",
+      "file": "icons/qwen-color.svg"
+    },
+    {
+      "name": "siliconcloud-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/siliconcloud-color.svg",
+      "file": "icons/siliconcloud-color.svg"
+    },
+    {
+      "name": "wenxin-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/wenxin-color.svg",
+      "file": "icons/wenxin-color.svg"
+    },
+    {
+      "name": "xiaomimimo",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/xiaomimimo.svg",
+      "file": "icons/xiaomimimo.svg"
+    },
+    {
+      "name": "zhipu-color",
+      "url": "https://unpkg.com/@lobehub/icons-static-svg@1.95.1/icons/zhipu-color.svg",
+      "file": "icons/zhipu-color.svg"
+    }
+  ]
+}
