@@ -4,9 +4,10 @@
 import { Hono } from 'hono'
 import { validAgentTypes } from '../agents/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
+import { runAgentChat } from '../agents/chat.js'
 import { mastra } from '../mastra/index.js'
 import { success, badRequest } from '../utils/response.js'
-import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, redactUrl } from '../utils/task-logger.js'
 
 const app = new Hono()
 
@@ -66,10 +67,7 @@ app.post('/:type/chat', async (c) => {
   const startTime = performance.now()
 
   try {
-    const result = await agent.generate(
-      [{ role: 'user', content: message }],
-      { maxSteps: 20, requestContext },
-    )
+    const result = await runAgentChat(agent, message, requestContext)
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
     logTaskSuccess('Agent', agentType, { elapsedSeconds: elapsed })
@@ -101,7 +99,12 @@ app.post('/:type/chat', async (c) => {
     })
   } catch (err: any) {
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1)
-    logTaskError('Agent', agentType, { elapsedSeconds: elapsed, error: err.message })
+    logTaskError('Agent', agentType, {
+      elapsedSeconds: elapsed,
+      error: err.message,
+      upstreamStatus: err.statusCode,
+      upstreamUrl: typeof err.url === 'string' ? redactUrl(err.url) : undefined,
+    })
     console.error(err.stack || err)
     return badRequest(c, err.message || 'Agent 执行失败')
   }

@@ -249,8 +249,11 @@ const saveStoryboards = createTool({
   id: 'save_storyboards',
   description: 'Save storyboards for this episode. Call in batches of at most 8 storyboards: the first batch must set replace_existing: true (clears all old storyboards for the episode, then writes), every following batch omits replace_existing (appends). Rows are upserted by shot_number, so overlapping batches and retries never create duplicates.',
   inputSchema: z.object({
-    replace_existing: z.boolean().optional(),
-    storyboards: z.array(storyboardFields),
+    // Some compatible gateways emit JSON boolean arguments as strings. Convert only
+    // the two explicit literals: generic boolean coercion would turn "false" into true.
+    replace_existing: z.union([z.boolean(), z.enum(['true', 'false'])])
+      .transform(value => value === true || value === 'true').optional(),
+    storyboards: z.array(storyboardFields).min(1),
   }),
   execute: async ({ storyboards, replace_existing }, context) => {
     const ids = requireIds(context)

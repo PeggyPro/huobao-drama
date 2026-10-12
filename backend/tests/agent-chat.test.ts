@@ -85,7 +85,7 @@ test('storyboard chat streams fragmented tool calls, saves every batch, and retu
           replacements.push(input.replace_existing)
           if (input.replace_existing) saved.length = 0
           saved.push(...input.storyboards)
-          return { saved: input.storyboards.length }
+          return { count: input.storyboards.length }
         },
       }),
     },
