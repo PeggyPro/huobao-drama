@@ -75,7 +75,7 @@ async function prepareSource(id: number, token: string, params: JsonRecord, conf
   if (physical.identity !== sourceVideo.identity) throw new Error('来源视频文件已改变，请重新选择来源版本')
   await io.probe(physical.file)
   params.sourceVideo = sourceVideo
-  if (params.continuityPlan.mode === 'tail_frame') params.resolvedFirstFrameUrl = await io.extractTail(sourceVideo.url)
+  if (params.continuityPlan.mode === 'tail_frame') params.resolvedFirstFrameUrl = await io.extractTail(sourceVideo.url, params.continuitySourceTaskId ?? undefined)
   requireVideoLease(id, token)
   updateLeasedVideo(id, token, { params: JSON.stringify(params) })
   return params

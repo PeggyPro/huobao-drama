@@ -4,6 +4,7 @@ import path from 'node:path'
 import sharp from 'sharp'
 import { STORAGE_ROOT } from '../../utils/paths.js'
 import type { AIConfig, VideoGenerationRecord } from './types.js'
+import { assertComfyUIArtifactUuid, assertComfyUIContextArtifact, comfyUIContextArtifact } from '../comfyui-artifacts.js'
 
 type Workflow = Record<string, { class_type: string; inputs: Record<string, any>; _meta?: { title?: string } }>
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024
@@ -105,10 +106,6 @@ function uniqueNodeId(workflow: Workflow, base: string): string {
   return id
 }
 
-function h3ContextFolder(storyboardId: number): string {
-  return `h3_context/huobao_storyboard_${storyboardId}`
-}
-
 function samplerForH3Latent(workflow: Workflow, rootId: string): string | null {
   const samplerClasses = new Set(['SamplerCustomAdvanced', 'SamplerCustom', 'KSampler', 'KSamplerAdvanced'])
   const match = Object.entries(workflow).find(([, node]) => samplerClasses.has(node.class_type)
@@ -146,23 +143,24 @@ function validateH3MotionContext(record: VideoGenerationRecord, hasH3: boolean):
     throw new Error(`不支持的视频接续模式：${record.continuityMode}`)
   }
   if (!record.continuityMode) {
-    if (record.continuitySourceStoryboardId != null) {
+    if (record.continuitySourceStoryboardId != null || record.continuitySourceArtifact != null) {
       throw new Error('H3 Motion Context 缺少 continuity_mode')
     }
     return
   }
   if (!hasH3) throw new Error('H3 Motion Context 仅支持 ComfyUI MiniMax H3 流程')
-  if (!Number.isInteger(record.storyboardId) || (record.storyboardId as number) <= 0) {
-    throw new Error('H3 Motion Context 需要有效的当前分镜 ID')
-  }
-  if (!Number.isInteger(record.continuitySourceStoryboardId) || (record.continuitySourceStoryboardId as number) <= 0) {
-    throw new Error('H3 Motion Context 需要上一分镜 ID')
-  }
-  if (record.storyboardId === record.continuitySourceStoryboardId) {
+  if (record.storyboardId != null && record.storyboardId === record.continuitySourceStoryboardId) {
     throw new Error('H3 Motion Context 的来源分镜不能与当前分镜相同')
   }
   if (record.firstFrameUrl || record.lastFrameUrl) {
     throw new Error('H3 Motion Context 不能同时指定首帧或尾帧图片；请在两种接续模式中选择一种')
+  }
+  assertComfyUIContextArtifact(record.continuitySourceArtifact)
+  if (record.continuitySourceArtifact.verified !== true || !record.continuitySourceArtifact.compatibility) {
+    throw new Error('H3 Motion Context 来源缺少已验证的 compatibility；旧任务 latent 不可验证')
+  }
+  if (record.continuitySourceArtifact.subfolder.toLowerCase() === comfyUIContextArtifact(record.artifactUuid!).subfolder) {
+    throw new Error('H3 Motion Context 来源 artifact 不能与当前任务相同')
   }
 }
 
@@ -173,14 +171,13 @@ function addH3MotionContext(
   record: VideoGenerationRecord,
   samplerId: string,
 ): void {
-  const storyboardId = record.storyboardId as number
-  const targetFolder = h3ContextFolder(storyboardId)
+  const targetFolder = comfyUIContextArtifact(record.artifactUuid!).subfolder
   if (record.continuityMode === 'motion_context') {
-    const sourceFolder = h3ContextFolder(record.continuitySourceStoryboardId as number)
+    const source = record.continuitySourceArtifact!
     const loadId = uniqueNodeId(workflow, `huobao_motion_context_load_${rootId}`)
     workflow[loadId] = {
       class_type: 'MiniMaxH3MotionContextLoadLatent',
-      inputs: { latent_path: sourceFolder, clip_index: 1 },
+      inputs: { latent_path: `${source.subfolder}/${source.filename}`, clip_index: 1 },
       _meta: { title: '火宝上一分镜 Motion Context' },
     }
     const consumers = Object.values(workflow).flatMap(consumer => Object.entries(consumer.inputs)
@@ -222,6 +219,7 @@ export async function injectComfyUIVideoReferences(
   record: VideoGenerationRecord,
   workflow: Workflow,
 ): Promise<string | null | undefined> {
+  assertComfyUIArtifactUuid(record.artifactUuid)
   const refs = urlList(record.referenceImageUrls, '参考图片')
   const videos = urlList(record.referenceVideoUrls, '参考视频')
   const audios = urlList(record.referenceAudioUrls, '参考音频')
@@ -232,6 +230,13 @@ export async function injectComfyUIVideoReferences(
   const h3 = h3Entries.map(([, node]) => node)
   const wan = Object.values(workflow).filter(node => node.class_type === 'Wan22ImageToVideoLatent')
   validateH3MotionContext(record, h3.length > 0)
+  if (h3.length > 1) throw new Error('ComfyUI 每个任务只支持一个 H3 AV latent，无法确定唯一 context 产物')
+  if (Object.values(workflow).some(node => node.class_type.startsWith('MiniMaxH3MotionContext'))) {
+    throw new Error('ComfyUI workflow 已包含 Motion Context 节点；请使用未注入的冻结工作流，避免重复 trim 或覆盖来源')
+  }
+  for (const [rootId] of h3Entries) {
+    if (!samplerForH3Latent(workflow, rootId)) throw new Error('H3 Motion Context 找不到连接当前 latent 的采样器，无法保存版本化 context')
+  }
   let sources: string[]
   let referenceCount = 0
   const guides: { url: string; frame: number }[] = []
@@ -268,10 +273,9 @@ export async function injectComfyUIVideoReferences(
     }
     return prompt
   }
-  // H3 Motion Context has no image upload on its own, but its Save/Load nodes
-  // still need to be attached for storyboard tasks. Wan text-only workflows
-  // must keep their graph untouched when there is no start image.
-  if (!sources.length && !(h3.length && record.storyboardId)) return prompt
+  // Every H3 task saves its own versioned context, including direct calls
+  // without a storyboard. Wan text-only graphs have no image link to inject.
+  if (!sources.length && !h3.length) return prompt
 
   // Read all inputs before uploading any: a missing asset must fail instead of
   // disappearing and shifting the remaining character/scene reference numbers.
@@ -322,16 +326,7 @@ export async function injectComfyUIVideoReferences(
       positiveId = guideId
     }
     if (guides.length) for (const { consumer, key } of consumers) consumer.inputs[key] = [positiveId, 0]
-    if (record.storyboardId) {
-      const samplerId = samplerForH3Latent(workflow, rootId)
-      if (!samplerId) {
-        if (record.continuityMode === 'motion_context') {
-          throw new Error('H3 Motion Context 找不到连接当前 latent 的采样器')
-        }
-      } else {
-        addH3MotionContext(workflow, rootId, node, record, samplerId)
-      }
-    }
+    addH3MotionContext(workflow, rootId, node, record, samplerForH3Latent(workflow, rootId)!)
   }
   for (const node of wan) node.inputs.start_image = [nodeIds[0], 0]
   return prompt

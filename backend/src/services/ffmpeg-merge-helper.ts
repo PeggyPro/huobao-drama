@@ -375,7 +375,9 @@ export async function executeMergeManifest(
         filters.push(`[${video}][v${index}]concat=n=2:v=1:a=0[rawv${index}]`)
         filters.push(`[${audio}][a${index}]concat=n=2:v=0:a=1[xa${index}]`)
       }
-      filters.push(`[rawv${index}]settb=AVTB,setpts=PTS-STARTPTS,fps=fps=${manifest.fps}[xv${index}]`)
+      // fps sets its own timebase, so restore AVTB last just as on each input.
+      // Otherwise a later xfade receives 1/fps from this chain and AVTB from vN.
+      filters.push(`[rawv${index}]setpts=PTS-STARTPTS,fps=fps=${manifest.fps},settb=AVTB[xv${index}]`)
       video = `xv${index}`
       audio = `xa${index}`
     }

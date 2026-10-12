@@ -100,6 +100,34 @@ test('audio_fade keeps the cut duration and fades each edge', async () => {
   assert.ok(Math.abs(result.probe.frame_count - manifest.total_frames) <= 1)
 })
 
+test('four-clip cut, audio_fade and dissolve chain keeps matching timebases', async () => {
+  // The 24 fps first clip reproduces the live H3 chain: concat twice, then xfade.
+  const sources = [
+    await source(50, 1, 'blue'),
+    await source(51, 2, 'red', { type: 'cut' }, 50),
+    await source(52, 3, 'yellow', { type: 'audio_fade', duration_ms: 30 }, 51),
+    await source(53, 4, 'purple', { type: 'dissolve', duration_ms: 250 }, 52),
+  ]
+  const manifest = mergeSources(sources)
+  assert.equal(manifest.fps, '24/1')
+  assert.deepEqual(manifest.boundaries.map(boundary => boundary.type), ['cut', 'audio_fade', 'dissolve'])
+  assert.equal(manifest.boundaries[2].overlap_frames, 6)
+  assert.equal(manifest.total_frames, manifest.clips.reduce((sum, clip) => sum + clip.frame_count, 0) - 6)
+  const output = path.join(tempRoot, 'mixed-chain.mp4')
+  const result = await executeMergeManifest(manifest, output, { tempRoot: path.join(tempRoot, 'tasks-mixed') })
+  const frameSeconds = result.probe.fps_den / result.probe.fps_num
+  assert.equal(result.probe.fps, manifest.fps)
+  assert.ok(Math.abs(result.probe.frame_count - manifest.total_frames) <= 1)
+  // ffprobe serializes seconds to microseconds; the frame-count bound above is exact.
+  assert.ok(Math.abs(result.probe.duration - manifest.total_duration_ms / 1000) <= frameSeconds + 1e-6)
+  assert.equal(result.probe.audio_sample_rate, 48000)
+  assert.equal(result.probe.audio_channels, 2)
+  assert.ok(result.probe.audio_duration != null)
+  assert.ok(Math.abs(result.probe.audio_duration! - result.probe.duration) <= frameSeconds + 1 / 48000)
+  // Decode both complete streams as well as checking container metadata.
+  await execFileAsync(ffmpegBin, ['-v', 'error', '-xerror', '-i', output, '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-'], { windowsHide: true })
+})
+
 test('nonconsecutive persisted transition defaults to cut but explicit override applies', async () => {
   // The incoming storyboard's actual full-episode predecessor is omitted from the selection.
   const nonconsecutive = [await source(30, 1, 'yellow'), await source(31, 3, 'purple', { type: 'dissolve' }, 999)]

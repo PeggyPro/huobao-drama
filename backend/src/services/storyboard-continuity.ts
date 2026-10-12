@@ -1,64 +1,70 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { extractVideoLastFrame } from '../utils/video-continuity.js'
+import { ContinuityConflict } from './continuity-plans.js'
+import { blockingVideoTask, localVideoArtifact } from './video-task-input.js'
 
-export async function assertStoryboardMotionContextSource(targetStoryboardId: number, sourceStoryboardId: number) {
-  const [target] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, targetStoryboardId))
-  const [source] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, sourceStoryboardId))
-  if (!target || target.deletedAt) throw new Error('当前分镜不存在')
-  if (!source || source.deletedAt) throw new Error('H3 Motion Context 的来源分镜不存在')
-  if (target.episodeId !== source.episodeId) throw new Error('H3 Motion Context 的来源必须属于同一集')
-  if (source.storyboardNumber >= target.storyboardNumber) throw new Error('H3 Motion Context 的来源必须是当前分镜之前的镜头')
-  if (!source.videoUrl) throw new Error(`请先完成分镜 ${source.storyboardNumber} 的视频，再使用 H3 Motion Context`)
-  const active = await db.select().from(schema.sysTask).where(and(
-    eq(schema.sysTask.storyboardId, source.id), eq(schema.sysTask.type, 'video'), eq(schema.sysTask.status, 'processing'),
-  ))
-  if (active.length) throw new Error('H3 Motion Context 的来源分镜正在生成，请等待完成')
-  const completed = await db.select().from(schema.sysTask).where(and(
-    eq(schema.sysTask.storyboardId, source.id), eq(schema.sysTask.type, 'video'), eq(schema.sysTask.status, 'completed'),
-  ))
-  const hasSavedContext = completed.some(task => {
-    if (task.localPath !== source.videoUrl) return false
-    try { return JSON.parse(task.params || '{}').h3_motion_context_version === 1 }
-    catch { return false }
-  })
-  if (!hasSavedContext) {
-    throw new Error(`分镜 ${source.storyboardNumber} 的视频没有 H3 Motion Context latent，请用当前 H3 流程重新生成后再接续`)
+/** The default follows the preceding shot's current version; an explicit task pins history. */
+export async function getStoryboardContinuityFrame(
+  storyboardId: number,
+  sourceTaskId?: number,
+  extractTail: typeof extractVideoLastFrame = extractVideoLastFrame,
+) {
+  if (!Number.isSafeInteger(storyboardId) || storyboardId <= 0) throw new Error('分镜 ID 无效')
+  if (sourceTaskId !== undefined && (!Number.isSafeInteger(sourceTaskId) || sourceTaskId <= 0)) {
+    throw new Error('source_task_id 必须为正整数')
   }
-  return {
-    sourceStoryboardId: source.id,
-    sourceStoryboardNumber: source.storyboardNumber,
-    sourceVideoUrl: source.videoUrl,
-  }
-}
 
-export async function getStoryboardContinuityFrame(storyboardId: number) {
-  const [target] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, storyboardId))
-  if (!target || target.deletedAt) throw new Error('当前分镜不存在')
-  const siblings = await db.select().from(schema.storyboards).where(eq(schema.storyboards.episodeId, target.episodeId))
-  const previous = siblings
-    .filter(row => !row.deletedAt && row.storyboardNumber < target.storyboardNumber)
-    .sort((a, b) => b.storyboardNumber - a.storyboardNumber)[0]
-  if (!previous) throw new Error('当前分镜没有上一分镜，不能自动续接')
-  if (!previous.videoUrl) throw new Error(`请先完成分镜 ${previous.storyboardNumber} 的视频，再提取尾帧`)
-
-  const assertReady = async () => {
-    const tasks = await db.select().from(schema.sysTask).where(and(
-      eq(schema.sysTask.storyboardId, previous.id), eq(schema.sysTask.type, 'video'), eq(schema.sysTask.status, 'processing'),
-    ))
-    if (tasks.length) throw new Error('上一分镜正在生成，请等待完成后再提取尾帧')
-    const [current] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, previous.id))
-    if (!current || current.deletedAt || current.videoUrl !== previous.videoUrl) {
-      throw new Error('上一分镜的视频已更新，请重新提取尾帧')
+  const selection = () => {
+    const target = db.select().from(schema.storyboards).where(eq(schema.storyboards.id, storyboardId)).get()
+    if (!target || target.deletedAt) throw new Error('当前分镜不存在')
+    const episode = db.select().from(schema.episodes).where(eq(schema.episodes.id, target.episodeId)).get()
+    if (!episode || episode.deletedAt) throw new Error('当前分镜所属剧集不存在')
+    const previous = db.select().from(schema.storyboards).where(eq(schema.storyboards.episodeId, target.episodeId)).all()
+      .filter(row => !row.deletedAt && row.storyboardNumber < target.storyboardNumber)
+      .sort((a, b) => b.storyboardNumber - a.storyboardNumber || b.id - a.id)[0]
+    if (!previous) throw new Error('当前分镜没有上一分镜，不能自动续接')
+    if (sourceTaskId === undefined && blockingVideoTask(previous.id)) {
+      throw new ContinuityConflict('上一分镜正在生成或提交结果待确认，请等待完成后再提取当前版本尾帧')
     }
+
+    const taskId = sourceTaskId ?? previous.videoTaskId ?? null
+    const task = taskId == null ? null : db.select().from(schema.sysTask).where(eq(schema.sysTask.id, taskId)).get()
+    if (taskId != null && (!task || task.type !== 'video' || task.storyboardId !== previous.id || task.deletedAt
+      || task.status !== 'completed' || task.phase === 'completed_stale' || !task.localPath)) {
+      throw new ContinuityConflict('尾帧来源必须是上一分镜已完成、未删除且未失效的视频任务版本')
+    }
+    const videoUrl = task?.localPath ?? previous.videoUrl
+    if (!videoUrl) throw new Error(`请先完成分镜 ${previous.storyboardNumber} 的视频，再提取尾帧`)
+    if (sourceTaskId === undefined && task && previous.videoUrl !== task.localPath) {
+      throw new ContinuityConflict('上一分镜当前视频与任务版本不一致，请重新选择来源')
+    }
+    return { target, previous, taskId, videoUrl }
   }
-  await assertReady()
-  const image = await extractVideoLastFrame(previous.videoUrl)
-  await assertReady()
+
+  const frozen = selection()
+  const physical = await localVideoArtifact(frozen.videoUrl)
+  const assertSelection = () => {
+    const current = selection()
+    if (current.target.episodeId !== frozen.target.episodeId || current.previous.id !== frozen.previous.id
+      || current.taskId !== frozen.taskId || current.videoUrl !== frozen.videoUrl) {
+      throw new ContinuityConflict('提取期间分镜邻接关系或来源视频版本已改变，请重新提取尾帧')
+    }
+    return current
+  }
+  // Filesystem operations yield; recheck the selected rows immediately before and after extraction.
+  assertSelection()
+  const image = await extractTail(frozen.videoUrl, frozen.taskId ?? undefined)
+  const after = await localVideoArtifact(frozen.videoUrl)
+  if (after.identity !== physical.identity || after.file !== physical.file) {
+    throw new ContinuityConflict('提取期间来源视频文件已改变，请重新提取尾帧')
+  }
+  const current = assertSelection()
   return {
     first_frame_url: image,
-    source_storyboard_id: previous.id,
-    source_storyboard_number: previous.storyboardNumber,
-    source_video_url: previous.videoUrl,
+    source_task_id: frozen.taskId,
+    source_storyboard_id: current.previous.id,
+    source_storyboard_number: current.previous.storyboardNumber,
+    source_video_url: frozen.videoUrl,
   }
 }

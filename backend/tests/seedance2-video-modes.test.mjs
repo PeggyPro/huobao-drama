@@ -38,34 +38,41 @@ test('volcengine video adapter only supports Seedance 2.0 models and reference m
 
 test('video generation service resolves reference media and persists new fields', () => {
   const service = read('src/services/generation.ts')
+  const queue = read('src/services/video-queue.ts')
+  const input = read('src/services/video-task-input.ts')
+  const worker = read('src/services/video-task-worker.ts')
 
-  assert.match(service, /PUBLIC_BASE_URL/)
-  assert.match(service, /resolvePublicMediaUrl/)
-  assert.match(service, /referenceVideoUrls: params\.referenceVideoUrls/)
-  assert.match(service, /referenceAudioUrls: params\.referenceAudioUrls/)
-  assert.match(service, /generateAudio: params\.generateAudio === false \? 0 : 1/)
-  // 默认多模态参考模式
-  assert.match(service, /referenceMode: params\.referenceMode \|\| 'reference'/)
-  assert.doesNotMatch(service, /referenceMode: params\.referenceMode \|\| 'text'/)
-  assert.doesNotMatch(service, /referenceMode: params\.referenceMode \|\| 'none'/)
+  // 旧服务入口委托同一持久队列；云端媒体解析在真正提交前执行。
+  assert.match(service, /return enqueueSingleVideo\(\{/)
+  assert.match(queue, /prepareVideoInputs\(body\.tasks, body\.episode_id\)/)
+  assert.match(queue, /params: JSON\.stringify\(params\)/)
+  assert.match(worker, /PUBLIC_BASE_URL/)
+  assert.match(worker, /prepared\.referenceVideoUrls = \(params\.referenceVideoUrls \|\| \[\]\)\.map\(publicMedia\)/)
+  assert.match(worker, /prepared\.referenceAudioUrls = \(params\.referenceAudioUrls \|\| \[\]\)\.map\(publicMedia\)/)
+  assert.match(input, /referenceVideoUrls: input\.reference_video_urls/)
+  assert.match(input, /referenceAudioUrls: input\.reference_audio_urls/)
+  assert.match(input, /generateAudio: input\.generate_audio === false \? 0 : 1/)
+  assert.match(input, /referenceMode: 'reference'/)
+  assert.match(worker, /adapter\.buildGenerateRequest\(config, videoRecord\(id, task\.storyboardId, prepared\)\)/)
 })
 
 test('video resolution is fixed per episode, editable, and locked into video tasks', () => {
   const episodes = read('src/routes/episodes.ts')
-  const tasks = read('src/routes/tasks.ts')
   const service = read('src/services/generation.ts')
+  const input = read('src/services/video-task-input.ts')
+  const queue = read('src/services/video-queue.ts')
+  const adapter = read('src/services/adapters/volcengine-video.ts')
 
-  // 创建集时固定（默认 720p，仅接受 480p/720p）
+  // 集分辨率白名单保持；Seedance 自身将 1080p 收敛到 720p。
   assert.match(episodes, /\['480p', '720p', '1080p'\]\.includes\(body\.resolution\)/)
-  // PUT 可修改，白名单校验
   assert.match(episodes, /'status', 'resolution'\]/)
   assert.match(episodes, /resolution 只支持 480p \/ 720p/)
-  // 视频任务锁定集的分辨率（优先于请求体）
-  assert.match(tasks, /episodeResolution = ep\.resolution/)
-  assert.match(tasks, /resolution: episodeResolution \|\| videoBody!\.resolution/)
-  // 服务落入 params 并传给适配器
+  // 同一输入入口读取所属集，并在入队前将其优先分辨率写进 params。
+  assert.match(input, /eq\(schema\.episodes\.id, shot\.episodeId\)/)
+  assert.match(input, /resolution: episode\?\.resolution \|\| input\.resolution/)
+  assert.match(queue, /params: JSON\.stringify\(params\)/)
   assert.match(service, /resolution: normalizeStoredVideoResolution\(params\.resolution\)/)
-  assert.match(service, /resolution: params\.resolution,/)
+  assert.match(adapter, /resolution: record\.resolution === '480p' \? '480p' : '720p'/)
 })
 
 test('upload route exposes validated video and audio endpoints', () => {
@@ -81,26 +88,28 @@ test('upload route exposes validated video and audio endpoints', () => {
 
 test('tasks route validates reference-mode requirements for video tasks', () => {
   const route = read('src/routes/tasks.ts')
+  const queue = read('src/services/video-queue.ts')
+  const input = read('src/services/video-task-input.ts')
 
-  // 统一任务入口：type 分派 image/video
+  // 统一任务入口：image 维持原路径，video 经单任务队列共享校验。
   assert.match(route, /type 必须为 image 或 video/)
   assert.match(route, /generateImage\(\{/)
-  assert.match(route, /generateVideo\(\{/)
+  assert.match(route, /enqueueSingleVideo\(body\)/)
+  assert.match(queue, /enqueueVideoBatch\(\{ request_key: input\.request_key, tasks: \[input\] \}, true\)/)
+  assert.match(queue, /prepareVideoInputs\(body\.tasks, body\.episode_id\)/)
+  assert.match(input, /validateMedia\(input, config\.provider\)/)
 
-  // 其他模式的校验已清理
+  // 其他模式的旧校验已清理；多模态限制在共享输入入口执行。
   assert.doesNotMatch(route, /文生视频模式必须提供 prompt/)
   assert.doesNotMatch(route, /首帧模式必须提供 first_frame_url/)
   assert.doesNotMatch(route, /首尾帧模式必须同时提供/)
-  // Wan 3.0 官方入参兼容层会把 input.media 归一到 first_frame_url/last_frame_url 等扁平字段
-
-  // 多模态参考校验并固定 reference 模式
-  assert.match(route, /参考素材超限：图片≤9、视频≤3、音频≤3/)
-  assert.match(route, /参考音频需要至少 1 个参考图片或视频/)
-  assert.match(route, /视频生成需要至少一个参考素材或 prompt/)
-  assert.match(route, /referenceMode: 'reference'/)
-  assert.match(route, /referenceVideoUrls: videoBody!\.reference_video_urls/)
-  assert.match(route, /referenceAudioUrls: videoBody!\.reference_audio_urls/)
-  assert.match(route, /generateAudio: videoBody!\.generate_audio/)
+  assert.match(input, /参考素材超限：图片≤9、视频≤3、音频≤3/)
+  assert.match(input, /参考音频需要至少一个参考图片或视频/)
+  assert.match(input, /视频生成需要至少一个参考素材或 prompt/)
+  assert.match(input, /referenceMode: 'reference'/)
+  assert.match(input, /referenceVideoUrls: input\.reference_video_urls/)
+  assert.match(input, /referenceAudioUrls: input\.reference_audio_urls/)
+  assert.match(input, /generateAudio: input\.generate_audio === false \? 0 : 1/)
 })
 
 test('image/video generation tasks are unified into a single sys_task table', () => {

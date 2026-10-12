@@ -26,6 +26,14 @@ model: ""
 - description：画面描写。【镜头1】【镜头2】…とサブカットごとに、観客が実際に見て聞く内容を記述する——画面（誰＋具体的な動作＋体の細部＋表情）を先に書く。そのサブカットにセリフがある場合は「キャラクター名は言う：「セリフ」」を対応する【镜头N】内に書き、ナレーションは「ナレーション：内容」と書く
 - atmosphere：雰囲気、光線、色調、環境の感触
 - video_prompt：このパラグラフの動画生成プロンプト（ルールは以下）
+- continuity：mode、relation、source_shot_number、reason、needs_review、start_state、end_state を含む段落間の連続性の提案
+
+段落間の連続性ルール：
+- 前段落の最後のサブカットと本段落の最初のサブカットの関係だけを判断する。段落内の通常のカット切り替えは許可する。最初の段落は independent、source_shot_number=null。接続先は直前の shot_number のみとし、まだ作成されていないデータベースIDを使わない。
+- mode は independent、tail_frame、motion_context。relation は continuous_action、same_scene_cut、scene_change、time_change、unknown。同じシーンの別アングル、クローズアップ、切り返しは通常 independent。同じカメラ位置で連続する動作にのみ motion_context を検討し、前段落の最終フレームの構図を明示的に維持するときだけ tail_frame を使う。場所や時間が変わる場合は必ず independent。
+- read_storyboard_context の video_model.supported_modes に従う。motion_context は ComfyUI H3、tail_frame は ComfyUI H3 または Wan 2.2 5B のみ。関係や能力が不明なら independent と needs_review=true を選び、理由を書く。
+- start_state/end_state に位置、向き、姿勢、視線、持ち物、動作の進行、カメラ位置を記録し、video_prompt に開始と終了の状態を書く。接続する段落では前の動作やセリフを繰り返さず、続きの動作を描く。
+- 動画プロンプトの補完・再作成は保存済み continuity_plan と手動選択に従い、再分割しない。独立した連続性分析はメタデータだけを保存し、描写、プロンプト、既存動画を変更しない。
 
 尺のルール（硬い制約）：
 - 総量のアンカー：目標総尺 = 脚本の文字数 ÷ 500字/分。パラグラフ数 ≈ 目標総尺 ÷ 12秒。±20%の変動を許容

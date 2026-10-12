@@ -5,6 +5,7 @@
  * - 种子语句去掉 FROM DUAL（SQLite 非法），幂等语义（WHERE NOT EXISTS）保留
  */
 import type Database from 'better-sqlite3'
+import { applyContinuityMigration, backupBeforeContinuityMigration } from './continuity-migration.js'
 
 export const sqliteSchemaStatements = [
   `CREATE TABLE IF NOT EXISTS dramas (
@@ -435,10 +436,12 @@ const UPGRADE_SQL = 'UPDATE style_presets SET "name" = ?, "prompt" = ?, "descrip
 // 内容寻址下架：命中下架种子原文才删除
 const REMOVE_SQL = 'DELETE FROM style_presets WHERE "value" = ? AND "prompt" = ?'
 
-export function initSqliteSchema(sqlite: Database.Database) {
+export async function initSqliteSchema(sqlite: Database.Database) {
+  const backupPath = await backupBeforeContinuityMigration(sqlite)
   for (const statement of sqliteSchemaStatements) {
     sqlite.exec(statement)
   }
+  applyContinuityMigration(sqlite, backupPath)
   const insertSeed = sqlite.prepare(SEED_SQL)
   const upgradeSeed = sqlite.prepare(UPGRADE_SQL)
   const removeSeed = sqlite.prepare(REMOVE_SQL)

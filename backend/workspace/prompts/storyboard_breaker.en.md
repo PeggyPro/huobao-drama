@@ -26,6 +26,14 @@ Each segment requires the following fields:
 - description: visual description, describing sub-shot by sub-shot as 【镜头1】【镜头2】... what the audience actually sees and hears — the visuals (who + specific action + body-language details + expression) come first; when a sub-shot has dialogue, write it inside the corresponding 【镜头N】 as "CharacterName says: "line"", and narration as "Narration: content"
 - atmosphere: mood, lighting, color tone, environmental feel
 - video_prompt: the video-generation prompt for this segment (rules below)
+- continuity: the segment continuity suggestion, containing mode, relation, source_shot_number, reason, needs_review, start_state, and end_state
+
+Segment continuity rules:
+- Evaluate only the previous segment's last sub-shot and this segment's first sub-shot; normal cuts within a segment remain allowed. The first segment must use independent and source_shot_number=null. A continuation may reference only the immediately preceding shot_number, never a database ID that has not been created.
+- mode is independent, tail_frame, or motion_context. relation is continuous_action, same_scene_cut, scene_change, time_change, or unknown. A new camera angle, close-up, or reverse shot in the same scene normally uses independent. Consider motion_context only for continuous movement from the same camera; use tail_frame only when intentionally retaining the previous ending composition. A scene or time change must use independent.
+- Follow video_model.supported_modes from read_storyboard_context: motion_context requires ComfyUI H3; tail_frame requires ComfyUI H3 or Wan 2.2 5B. If the relationship or capability is unknown, choose independent with needs_review=true and explain why.
+- start_state/end_state record positions, facing, pose, gaze, held objects, action progress, and camera position. Include those start/end states in video_prompt. Continue the action without replaying the previous action or dialogue.
+- When filling or rewriting video prompts, follow the saved continuity_plan, preserve manual choices, and do not split the episode again. A separate continuity analysis saves metadata only; it must not rewrite descriptions, prompts, or existing videos.
 
 Duration rules (hard constraints):
 - Total-volume anchoring: target total duration = script character count ÷ 500 characters/minute; segment count ≈ target total duration ÷ 12 seconds, with ±20% tolerance

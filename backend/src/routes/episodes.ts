@@ -6,6 +6,8 @@ import { toSnakeCaseArray, toSnakeCase } from '../utils/transform.js'
 import { getActiveConfigId } from '../services/ai.js'
 import { EXTRACT_TARGETS, getExtractionStatus, startExtraction, type ExtractTarget } from '../services/extraction.js'
 import { getVideoPromptBatchStatus, startVideoPromptBatch } from '../services/video-prompts.js'
+import { analyzeEpisodeContinuity } from '../services/continuity-analysis.js'
+import { ContinuityConflict } from '../services/continuity-plans.js'
 
 const app = new Hono()
 
@@ -143,6 +145,19 @@ app.get('/:id/extract-status', async (c) => {
   return success(c, getExtractionStatus(id))
 })
 
+app.post('/:id/analyze-continuity', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    const result = await analyzeEpisodeContinuity(Number(c.req.param('id')), {
+      model: body.model, configId: body.config_id, videoConfigId: body.video_config_id, videoModel: body.video_model,
+    })
+    return success(c, result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return error instanceof ContinuityConflict ? c.json({ code: 409, message }, 409) : badRequest(c, message)
+  }
+})
+
 // POST /episodes/:id/generate-video-prompts — 异步批量为缺少视频提示词的分镜生成（立即返回，前端轮询状态）
 app.post('/:id/generate-video-prompts', async (c) => {
   const id = Number(c.req.param('id'))
@@ -237,6 +252,7 @@ app.get('/:id/generation-tasks', async (c) => {
 
   const allTasks = await db.select().from(schema.sysTask).where(eq(schema.sysTask.dramaId, ep.dramaId))
   const tasks = allTasks
+    .filter(t => !t.deletedAt)
     .filter(t =>
       (t.storyboardId && storyboardIds.has(t.storyboardId)) ||
       (t.sceneId && sceneIds.has(t.sceneId)) ||

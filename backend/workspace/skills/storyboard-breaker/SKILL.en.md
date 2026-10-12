@@ -19,7 +19,7 @@ One storyboard = one **storyboard segment** = one video-generation task.
 1. Call `read_storyboard_context` to read the script, characters, scenes, props, and existing storyboard summaries
 2. **Beat identification**: first identify the script's narrative beats — markers such as [Opening] [Trigger] [Climax] [Resolution], or narrative turning points (location changes, rule reveals, emotional eruptions, reversals). **Beat boundaries force a segment cut**; group sub-shots within the same beat into the same segment where possible, and do not scatter a causal chain (setup-event-reaction) across different segments
 3. **Total-volume anchoring**: target total duration = script character count ÷ 500 characters/minute; segment count ≈ target total duration ÷ 12 seconds, with ±20% tolerance. Do not significantly overshoot or undershoot
-4. **Split sub-shots within each segment**: cut sub-shots at action-change points, viewpoint-change points, and subject-change points; after filling in all fields for each segment, call `save_storyboards` to save them in one go
+4. **Split sub-shots within each segment**: cut at changes of action, viewpoint, and subject. Complete the fields and continuity suggestion, then call `save_storyboards` in batches of at most 8 segments. For a full-episode rewrite, set `replace_existing=true` in the first batch and omit it thereafter. Increase `shot_number` in order and finish only after every segment is saved.
 
 ## Pacing-Tier Durations
 
@@ -74,6 +74,15 @@ Dialogue that does not fit must be moved to the next segment; cramming unperform
 - Prop close-up segments (without characters) should also bind the prop; `character_ids` may be empty
 - Do not bind background items or set dressing irrelevant to the plot; segments with no props pass an empty array
 - Bound props serve as reference images for video generation (white-background product shots), keeping the prop's appearance consistent across segments
+
+## Continuity Between Segments
+
+- Fill `continuity` for every segment: `mode`, `relation`, `source_shot_number`, `reason`, `needs_review`, `start_state`, and `end_state`. Evaluate the previous segment's last sub-shot against this segment's first; normal cuts inside each segment remain allowed.
+- The first segment must use `independent` with a `null` source. A continuation may reference only the immediately preceding `shot_number`. The server resolves numbers to persisted IDs; never guess database IDs.
+- Choose `relation` from `continuous_action`, `same_scene_cut`, `scene_change`, `time_change`, and `unknown`. A new angle, close-up, or reverse shot normally uses independent generation. Consider `motion_context` only for continuous action from the same camera, and `tail_frame` only to retain the previous ending composition. Scene and time changes must be independent.
+- Follow `video_model.supported_modes` from `read_storyboard_context`: motion context requires ComfyUI H3; a tail frame requires ComfyUI H3 or Wan 2.2 5B. Unknown relationships or capabilities use `independent`, `needs_review=true`, and an explanation.
+- Start/end states describe positions, facing, poses, gaze, held objects, action progress, and the camera. Include them in `video_prompt` and continue without replaying the previous action or dialogue. Prompt rewrites follow the saved `continuity_plan` and manual choices without splitting again.
+- A separate continuity analysis updates metadata and AI suggestions only. It preserves descriptions, prompts, videos, and manual choices until the user changes them.
 
 ## Quality Requirements
 

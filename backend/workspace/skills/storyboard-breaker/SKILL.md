@@ -19,7 +19,7 @@ description: 分镜拆解专业规范 — 将剧本拆分为可承载多个子�
 1. 调用 `read_storyboard_context` 读取剧本、角色、场景、道具、已有分镜摘要
 2. **节拍识别**：先识别剧本的叙事节拍——剧本中的【开场】【触发】【高潮】【收尾】等标记，或叙事转折点（地点转移、规则揭示、情绪爆发、反转）。**节拍边界强制切段**，同一节拍内的子镜头优先归入同一段落，不把一条因果链（铺垫-发生-反应）切散到不同段落
 3. **总量锚定**：目标总时长 = 剧本字数 ÷ 500字/分钟；段落数 ≈ 目标总时长 ÷ 12秒，允许 ±20% 浮动。不要明显超出或不足
-4. **段落内拆子镜头**：按动作切换点、视角切换点、对象切换点切分子镜头，为每个段落补全完整字段后调用 `save_storyboards` 一次性保存
+4. **段落内拆子镜头**：按动作切换点、视角切换点、对象切换点切分子镜头，补全字段与衔接建议，再调用 `save_storyboards` 分批保存。每批最多 8 段；整集重拆第一批 `replace_existing=true`，后续省略。按 `shot_number` 递增，保存完全部段落后才结束。
 
 ## 节奏分层时长
 
@@ -74,6 +74,15 @@ description: 分镜拆解专业规范 — 将剧本拆分为可承载多个子�
 - 道具特写段落（无角色）也应绑定道具，`character_ids` 可为空
 - 与剧情无关的背景物品、场景陈设不要绑定；没有道具出现的段落传空数组
 - 绑定的道具会作为视频生成的参考图（白底单品图），保证道具外观跨段落一致
+
+## 段落之间的衔接
+
+- 每段填写 `continuity`：`mode`、`relation`、`source_shot_number`、`reason`、`needs_review`、`start_state`、`end_state`。只判断前段最后一个子镜头到本段第一个子镜头，段落内部仍可正常切镜。
+- 首段必须 `independent`，来源为 `null`；接续来源只能是紧邻前段的 `shot_number`。保存时系统再将段落号解析为数据库ID，勿猜测ID。
+- `relation` 选 `continuous_action`、`same_scene_cut`、`scene_change`、`time_change`、`unknown`。同场景换机位、特写、正反打通常独立生成；同机位连续动作才考虑 `motion_context`；明确保持前段尾帧构图才用 `tail_frame`；换场景或时间必须独立生成。
+- 按 `read_storyboard_context` 的 `video_model.supported_modes` 选择：动作上下文仅 ComfyUI H3，尾帧仅 ComfyUI H3 或 Wan 2.2 5B。关系或能力未知时 `independent`、`needs_review=true`，并记录原因。
+- 开始/结束状态写清位置朝向、姿态、视线、持物、动作进度及机位，并写入 `video_prompt`；接续动作不可重演前段动作或台词。补写提示词遵守已保存的 `continuity_plan` 和人工选择，不重拆分。
+- “重新分析衔接”只更新衔接元数据和AI建议，不改描述、提示词或已有视频；人工策略由人工确认后才改变。
 
 ## 质量要求
 

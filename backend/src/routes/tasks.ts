@@ -1,280 +1,88 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { success, created, badRequest } from '../utils/response.js'
-import { generateImage, generateVideo } from '../services/generation.js'
-import { getActiveConfig, getConfigById } from '../services/ai.js'
-import { getDramaStylePrompt } from '../services/style-preset.js'
-import { assertStoryboardMotionContextSource } from '../services/storyboard-continuity.js'
-import { logTaskError, logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { generateImage } from '../services/generation.js'
+import { cancelVideoTask, enqueueSingleVideo, enqueueVideoBatch, previewVideoBatch, retryVideoTask, reconcileVideoTask } from '../services/video-queue.js'
+import { ContinuityConflict } from '../services/continuity-plans.js'
+import { logTaskError, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
-
-type TaskType = 'image' | 'video'
-
-const WAN_MEDIA_TYPES = new Set([
-  'first_frame',
-  'last_frame',
-  'reference_image',
-  'reference_video',
-  'reference_audio',
-  'file',
-  'link',
-])
-
-/**
- * 兼容项目原有扁平入参，也支持 Wan 3.0 官方 model/input/parameters 结构。
- */
-function normalizeVideoRequest(body: any) {
-  const input = body.input && typeof body.input === 'object' && !Array.isArray(body.input) ? body.input : {}
-  const parameters = body.parameters && typeof body.parameters === 'object' && !Array.isArray(body.parameters)
-    ? body.parameters
-    : {}
-  const media = Array.isArray(input.media) ? input.media : []
-
-  const mediaUrls = (type: string) => media
-    .filter((item: any) => item?.type === type)
-    .map((item: any) => item?.url)
-
-  return {
-    ...body,
-    prompt: body.prompt ?? input.prompt ?? '',
-    reference_image_urls: body.reference_image_urls ?? mediaUrls('reference_image'),
-    reference_video_urls: body.reference_video_urls ?? mediaUrls('reference_video'),
-    reference_audio_urls: body.reference_audio_urls ?? mediaUrls('reference_audio'),
-    first_frame_url: body.first_frame_url ?? mediaUrls('first_frame')[0],
-    last_frame_url: body.last_frame_url ?? mediaUrls('last_frame')[0],
-    file_url: body.file_url ?? mediaUrls('file')[0],
-    link_url: body.link_url ?? mediaUrls('link')[0],
-    generate_audio: body.generate_audio ?? parameters.audio,
-    duration: body.duration ?? parameters.duration,
-    aspect_ratio: body.aspect_ratio ?? parameters.ratio,
-    resolution: body.resolution ?? parameters.resolution,
-    seed: body.seed ?? parameters.seed,
-    prompt_extend: body.prompt_extend ?? parameters.prompt_extend,
-    watermark: body.watermark ?? parameters.watermark,
-    continuity_mode: body.continuity_mode ?? parameters.continuity_mode,
-    continuity_source_storyboard_id: body.continuity_source_storyboard_id ?? parameters.continuity_source_storyboard_id,
-    official_media: media,
-  }
+function failure(c: Context, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  logTaskError('TaskAPI', 'request-failed', { error: message })
+  return error instanceof ContinuityConflict ? c.json({ code: 409, message }, 409) : badRequest(c, message)
 }
 
-function validateVideoRequest(body: any, provider?: string, configuredModel?: string): string | null {
-  for (const key of ['reference_image_urls', 'reference_video_urls', 'reference_audio_urls']) {
-    if (body[key] !== undefined && !Array.isArray(body[key])) return `${key} 必须为数组`
-    if (Array.isArray(body[key]) && body[key].some((url: any) => typeof url !== 'string' || !url.trim())) {
-      return `${key} 中的每个 URL 都必须为非空字符串`
-    }
-  }
-
-  if (body.official_media.length) {
-    for (const item of body.official_media) {
-      if (!item || typeof item !== 'object' || !WAN_MEDIA_TYPES.has(item.type) || typeof item.url !== 'string' || !item.url.trim()) {
-        return 'input.media 中的每项都必须包含官方支持的 type 和非空 url'
-      }
-    }
-    for (const type of ['first_frame', 'last_frame', 'file', 'link']) {
-      if (body.official_media.filter((item: any) => item.type === type).length > 1) {
-        return `Wan 3.0 input.media 中 ${type} 最多 1 项`
-      }
-    }
-  }
-
-  const continuityMode = body.continuity_mode
-  if (continuityMode != null && continuityMode !== '' && continuityMode !== 'motion_context') {
-    return 'continuity_mode 只支持 motion_context'
-  }
-  if (body.continuity_source_storyboard_id != null && !Number.isInteger(Number(body.continuity_source_storyboard_id))) {
-    return 'continuity_source_storyboard_id 必须为整数'
-  }
-  if (continuityMode === 'motion_context') {
-    const modelText = body.model || configuredModel || ''
-    if ((provider || '').toLowerCase() !== 'comfyui' || !/minimax[_-]?h3/i.test(modelText)) {
-      return 'motion_context 仅支持 ComfyUI MiniMax H3 模型'
-    }
-    if (!Number.isInteger(Number(body.storyboard_id)) || Number(body.storyboard_id) <= 0) {
-      return 'motion_context 需要当前分镜 ID'
-    }
-    if (!Number.isInteger(Number(body.continuity_source_storyboard_id)) || Number(body.continuity_source_storyboard_id) <= 0) {
-      return 'motion_context 需要上一分镜 ID'
-    }
-    if (Number(body.storyboard_id) === Number(body.continuity_source_storyboard_id)) {
-      return 'motion_context 的来源分镜不能与当前分镜相同'
-    }
-    if (body.first_frame_url || body.last_frame_url) {
-      return 'motion_context 不能同时指定首帧或尾帧图片'
-    }
-  } else if (body.continuity_source_storyboard_id != null) {
-    return '指定 continuity_source_storyboard_id 时必须使用 motion_context'
-  }
-
-  const imgs = body.reference_image_urls.length
-  const vids = body.reference_video_urls.length
-  const auds = body.reference_audio_urls.length
-  const first = Boolean(body.first_frame_url)
-  const last = Boolean(body.last_frame_url)
-  const file = Boolean(body.file_url)
-  const link = Boolean(body.link_url)
-
-  if ((provider || '').toLowerCase() === 'aliyun') {
-    if (imgs > 10 || vids > 5 || auds > 5) return 'Wan 3.0 参考素材超限：图片≤10、视频≤5、音频≤5'
-    if (last && !first) return 'Wan 3.0 尾帧必须与首帧同时传入'
-    if (file && link) return 'Wan 3.0 file 与 link 不能同时传入'
-    if ((first || last) && (imgs + vids + auds > 0 || file || link)) {
-      return 'Wan 3.0 的 first_frame/last_frame 不能与 reference_image/reference_video/reference_audio/file/link 混用'
-    }
-    const total = imgs + vids + auds + Number(first) + Number(last) + Number(file) + Number(link)
-    if (total > 20) return 'Wan 3.0 input.media 最多 20 项'
-  } else {
-    if (imgs > 9 || vids > 3 || auds > 3) return '参考素材超限：图片≤9、视频≤3、音频≤3'
-    if (auds > 0 && imgs + vids === 0) return '参考音频需要至少 1 个参考图片或视频'
-  }
-
-  if (!String(body.prompt || '').trim() && imgs + vids + auds === 0 && !first && !last && !file && !link) {
-    return '视频生成需要至少一个参考素材或 prompt'
-  }
-  return null
-}
-
-// POST /tasks — 发起生成任务（body.type: image | video）
-app.post('/', async (c) => {
-  const body = await c.req.json()
-  const type = body.type as TaskType
-  if (type !== 'image' && type !== 'video') return badRequest(c, 'type 必须为 image 或 video')
-
-  if (type === 'image') {
-    if (!body.prompt) return badRequest(c, '提示词必填')
-  }
-
-  const videoBody = type === 'video' ? normalizeVideoRequest(body) : null
-
+app.post('/batch/preview', async c => {
+  try { return success(c, await previewVideoBatch(await c.req.json())) }
+  catch (error) { return failure(c, error) }
+})
+app.post('/batch', async c => {
+  try { return created(c, await enqueueVideoBatch(await c.req.json())) }
+  catch (error) { return failure(c, error) }
+})
+app.post('/:id/retry', async c => {
   try {
-    // 请求显式指定 config_id（工作台模型下拉跨厂商切换）时优先；
-    // 未指定才回退到集锁定配置，避免锁定配置与所选模型错配（如锁定 Seedance 却传 MiniMax 模型名）
-    let configId: number | undefined = body.config_id
-    let episodeResolution: string | undefined
-    let storyboardDramaId: number | undefined
-    if (body.storyboard_id) {
-      const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, Number(body.storyboard_id)))
-      if (sb) {
-        const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, sb.episodeId))
-        const locked = type === 'image' ? ep?.imageConfigId : ep?.videoConfigId
-        if (locked != null && configId == null) configId = locked
-        if (type === 'video' && ep?.resolution) episodeResolution = ep.resolution
-        storyboardDramaId = ep?.dramaId ?? undefined
+    const body = await c.req.json().catch(() => ({}))
+    return created(c, await retryVideoTask(Number(c.req.param('id')), body.continue_dependents === true))
+  } catch (error) { return failure(c, error) }
+})
+app.post('/:id/reconcile', async c => {
+  try {
+    const body = await c.req.json().catch(() => ({}))
+    return success(c, await reconcileVideoTask(Number(c.req.param('id')), body.continue_dependents === true))
+  } catch (error) { return failure(c, error) }
+})
+app.post('/:id/cancel', async c => {
+  try { return success(c, cancelVideoTask(Number(c.req.param('id')))) }
+  catch (error) { return failure(c, error) }
+})
+
+// Existing single-image and single-video endpoint; videos share the persistent batch queue.
+app.post('/', async c => {
+  try {
+    const body = await c.req.json()
+    if (body.type !== 'image' && body.type !== 'video') return badRequest(c, 'type 必须为 image 或 video')
+    let id: number
+    if (body.type === 'video') id = await enqueueSingleVideo(body)
+    else {
+      if (!body.prompt) return badRequest(c, '提示词必填')
+      let configId = body.config_id
+      if (body.storyboard_id && configId == null) {
+        const shot = db.select().from(schema.storyboards).where(eq(schema.storyboards.id, Number(body.storyboard_id))).get()
+        const episode = shot ? db.select().from(schema.episodes).where(eq(schema.episodes.id, shot.episodeId)).get() : null
+        configId = episode?.imageConfigId ?? undefined
       }
+      id = await generateImage({ storyboardId: body.storyboard_id, dramaId: body.drama_id, sceneId: body.scene_id,
+        characterId: body.character_id, propId: body.prop_id, prompt: body.prompt, model: body.model,
+        size: body.size, referenceImages: body.reference_images, frameType: body.frame_type, configId })
     }
-
-    if (type === 'video' && videoBody) {
-      const effectiveConfig = configId
-        ? (await getConfigById(configId)) ?? await getActiveConfig('video')
-        : await getActiveConfig('video')
-      const validationError = validateVideoRequest(videoBody, effectiveConfig?.provider, effectiveConfig?.model)
-      if (validationError) return badRequest(c, validationError)
-      if (videoBody.continuity_mode === 'motion_context') {
-        await assertStoryboardMotionContextSource(
-          Number(body.storyboard_id),
-          Number(videoBody.continuity_source_storyboard_id),
-        )
-      }
-    }
-
-    logTaskStart('TaskAPI', 'generate', {
-      type,
-      storyboardId: body.storyboard_id,
-      sceneId: body.scene_id,
-      characterId: body.character_id,
-      dramaId: body.drama_id,
-    })
-    logTaskPayload('TaskAPI', 'request body', body)
-
-    // 视频生成时把项目视觉风格词注入提示词最前方（与图片侧的自动注入保持一致口径）
-    let videoPrompt = videoBody?.prompt
-    if (type === 'video' && String(videoPrompt || '').trim()) {
-      const dramaId = body.drama_id ?? storyboardDramaId ?? null
-      const stylePrompt = await getDramaStylePrompt(dramaId)
-      if (stylePrompt) videoPrompt = `${stylePrompt}，\n${videoPrompt}`
-    }
-
-    const id = type === 'image'
-      ? await generateImage({
-        storyboardId: body.storyboard_id,
-        dramaId: body.drama_id,
-        sceneId: body.scene_id,
-        characterId: body.character_id,
-        prompt: body.prompt,
-        model: body.model,
-        size: body.size,
-        referenceImages: body.reference_images,
-        frameType: body.frame_type,
-        configId,
-      })
-      : await generateVideo({
-        storyboardId: body.storyboard_id,
-        dramaId: body.drama_id,
-        prompt: videoPrompt,
-        model: videoBody!.model,
-        referenceMode: 'reference',
-        imageUrl: videoBody!.image_url,
-        firstFrameUrl: videoBody!.first_frame_url,
-        lastFrameUrl: videoBody!.last_frame_url,
-        referenceImageUrls: videoBody!.reference_image_urls,
-        continuityMode: videoBody!.continuity_mode === 'motion_context' ? 'motion_context' : undefined,
-        continuitySourceStoryboardId: videoBody!.continuity_source_storyboard_id == null
-          ? undefined
-          : Number(videoBody!.continuity_source_storyboard_id),
-        referenceVideoUrls: videoBody!.reference_video_urls,
-        referenceAudioUrls: videoBody!.reference_audio_urls,
-        referenceFileUrl: videoBody!.file_url,
-        referenceLinkUrl: videoBody!.link_url,
-        generateAudio: videoBody!.generate_audio,
-        duration: videoBody!.duration,
-        aspectRatio: videoBody!.aspect_ratio,
-        resolution: episodeResolution || videoBody!.resolution,
-        seed: videoBody!.seed,
-        promptExtend: videoBody!.prompt_extend,
-        watermark: videoBody!.watermark,
-        configId,
-      })
-
-    const [record] = await db.select().from(schema.sysTask)
-      .where(eq(schema.sysTask.id, id))
-    logTaskSuccess('TaskAPI', 'generate', { taskId: id, type, provider: record?.provider })
+    const record = db.select().from(schema.sysTask).where(eq(schema.sysTask.id, id)).get()
+    logTaskSuccess('TaskAPI', 'generate', { taskId: id, type: body.type, provider: record?.provider })
     return created(c, record)
-  } catch (err: any) {
-    logTaskError('TaskAPI', 'generate', { type, error: err.message })
-    return badRequest(c, err.message)
-  }
+  } catch (error) { return failure(c, error) }
 })
-
-// GET /tasks/:id — 轮询任务状态
-app.get('/:id', async (c) => {
-  const id = Number(c.req.param('id'))
-  const [row] = await db.select().from(schema.sysTask)
-    .where(eq(schema.sysTask.id, id))
-  return success(c, row || null)
+app.get('/:id', c => {
+  const row = db.select().from(schema.sysTask).where(eq(schema.sysTask.id, Number(c.req.param('id')))).get()
+  return success(c, row && !row.deletedAt ? row : null)
 })
-
-// GET /tasks — 按 type / storyboard_id / drama_id 过滤
-app.get('/', async (c) => {
-  const type = c.req.query('type')
-  const storyboardId = c.req.query('storyboard_id')
-  const dramaId = c.req.query('drama_id')
-
-  let rows = await db.select().from(schema.sysTask)
-
-  if (type) rows = rows.filter(r => r.type === type)
-  if (storyboardId) rows = rows.filter(r => r.storyboardId === Number(storyboardId))
-  if (dramaId) rows = rows.filter(r => r.dramaId === Number(dramaId))
-
+app.get('/', c => {
+  const type = c.req.query('type'), storyboardId = c.req.query('storyboard_id'), dramaId = c.req.query('drama_id'), batchId = c.req.query('batch_id')
+  let rows = db.select().from(schema.sysTask).all().filter(row => !row.deletedAt)
+  if (type) rows = rows.filter(row => row.type === type)
+  if (storyboardId) rows = rows.filter(row => row.storyboardId === Number(storyboardId))
+  if (dramaId) rows = rows.filter(row => row.dramaId === Number(dramaId))
+  if (batchId) rows = rows.filter(row => row.batchId === batchId)
   return success(c, rows)
 })
-
-// DELETE /tasks/:id
-app.delete('/:id', async (c) => {
-  const id = Number(c.req.param('id'))
-  await db.delete(schema.sysTask).where(eq(schema.sysTask.id, id))
-  return success(c)
+app.delete('/:id', c => {
+  try {
+    const id = Number(c.req.param('id'))
+    const row = db.select().from(schema.sysTask).where(eq(schema.sysTask.id, id)).get()
+    if (row?.type === 'video') cancelVideoTask(id, true)
+    else db.delete(schema.sysTask).where(eq(schema.sysTask.id, id)).run()
+    return success(c)
+  } catch (error) { return failure(c, error) }
 })
-
 export default app

@@ -1,175 +1,257 @@
 /**
- * FFmpeg 多镜头拼接 — 将所有生成后的镜头视频拼接为一集
+ * FFmpeg episode export. The v2 merge manifest freezes every selected source,
+ * its measured frame timeline, and the transition at the incoming boundary.
  */
-import fs from 'fs'
-import path from 'path'
+import fs from 'node:fs'
+import path from 'node:path'
 import { v4 as uuid } from 'uuid'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db, getInsertId, schema } from '../db/index.js'
-import { eq } from 'drizzle-orm'
 import { now } from '../utils/response.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 import { extractVideoPoster } from '../utils/video-poster.js'
-import { ffmpeg, checkFfmpegSuite } from '../utils/ffmpeg.js'
-import { DATA_ROOT, STORAGE_ROOT } from '../utils/paths.js'
+import { checkFfmpegSuite } from '../utils/ffmpeg.js'
+import { STORAGE_ROOT } from '../utils/paths.js'
+import {
+  assertReadableVideo,
+  buildTimelineManifest,
+  executeMergeManifest,
+  probeMedia,
+  resolveCanvas,
+  toAbsoluteVideoPath,
+  type MergeManifest,
+  type MediaProbe,
+  type TimelineSource,
+  type TransitionOverride,
+  type TransitionType,
+} from './ffmpeg-merge-helper.js'
 
-function toAbsPath(relativePath: string): string {
-  if (path.isAbsolute(relativePath)) return relativePath
-  if (relativePath.startsWith('static/')) return path.join(DATA_ROOT, relativePath)
-  return path.join(STORAGE_ROOT, relativePath)
+export type { MergeManifest, TransitionOverride, TransitionType }
+
+export interface MergeBlocker { code: string; message: string; storyboard_id?: number }
+export interface PreviewClip {
+  storyboard_id: number
+  storyboard_number: number
+  video_task_id: number | null
+  url: string | null
+  duration_ms: number | null
+  fps: string | null
+  width: number | null
+  height: number | null
+  has_audio: boolean | null
+  offset_ms: number | null
+}
+export interface MergePreflight {
+  version: 2
+  clips: PreviewClip[]
+  boundaries: MergeManifest['boundaries']
+  total_duration_ms: number
+  canvas: MergeManifest['canvas']
+  fps: string
+  timebase: string
+  blockers: MergeBlocker[]
+  /** Internal frozen manifest; omitted by the API route. */
+  manifest: MergeManifest | null
 }
 
-/**
- * 拼接一集的镜头视频。
- * 优先使用视频生成产物，兼容历史的 composedVideoUrl 数据。
- * 传入 storyboardIds 时只拼接所选镜头（仍按镜号顺序）。
- */
-export async function mergeEpisodeVideos(episodeId: number, dramaId: number, storyboardIds?: number[]): Promise<number> {
-  let storyboards = await db.select().from(schema.storyboards)
-    .where(eq(schema.storyboards.episodeId, episodeId))
+export class MergePreflightError extends Error {
+  constructor(public readonly preview: MergePreflight) {
+    super(preview.blockers.map(blocker => blocker.message).join('；') || '拼接前检查未通过')
+    this.name = 'MergePreflightError'
+  }
+}
+
+interface StoryboardSelection {
+  id: number
+  storyboardNumber: number
+  previousStoryboardId: number | null
+  videoTaskId: number | null
+  videoUrl: string | null
+  composedVideoUrl: string | null
+  transitionConfig: unknown
+}
+
+function selectedStoryboardIds(storyboardIds?: number[]): Set<number> | null {
+  if (!storyboardIds?.length) return null
+  return new Set(storyboardIds.map(Number).filter(id => Number.isInteger(id) && id > 0))
+}
+
+function previewClipFromStoryboard(sb: StoryboardSelection, probe?: MediaProbe, offsetMs: number | null = null): PreviewClip {
+  return {
+    storyboard_id: sb.id, storyboard_number: sb.storyboardNumber, video_task_id: sb.videoTaskId,
+    url: sb.videoUrl || sb.composedVideoUrl, duration_ms: probe?.duration_ms ?? null,
+    fps: probe?.fps ?? null, width: probe?.width ?? null, height: probe?.height ?? null,
+    has_audio: probe?.has_audio ?? null, offset_ms: offsetMs,
+  }
+}
+
+function toTransitionOverrides(values?: TransitionOverride[]): TransitionOverride[] {
+  return (values || []).map(value => ({
+    storyboard_id: Number(value.storyboard_id), type: value.type,
+    ...(value.duration_ms === undefined ? {} : { duration_ms: Number(value.duration_ms) }),
+  }))
+}
+
+function storyboardSelection(row: typeof schema.storyboards.$inferSelect, previousStoryboardId: number | null): StoryboardSelection {
+  return {
+    id: row.id, storyboardNumber: row.storyboardNumber, previousStoryboardId,
+    videoTaskId: row.videoTaskId ?? null, videoUrl: row.videoUrl, composedVideoUrl: row.composedVideoUrl,
+    transitionConfig: row.transitionConfig,
+  }
+}
+
+async function loadSelection(episodeId: number, storyboardIds?: number[]): Promise<{
+  rows: StoryboardSelection[]
+  blockers: MergeBlocker[]
+}> {
+  const allRows = await db.select().from(schema.storyboards)
+    .where(and(eq(schema.storyboards.episodeId, episodeId), isNull(schema.storyboards.deletedAt)))
     .orderBy(schema.storyboards.storyboardNumber)
-
-  if (storyboardIds?.length) {
-    const allow = new Set(storyboardIds.map(Number))
-    storyboards = storyboards.filter(sb => allow.has(sb.id))
+  const all = allRows.map((row, index) => storyboardSelection(row, index ? allRows[index - 1].id : null))
+  const requested = selectedStoryboardIds(storyboardIds)
+  if (!requested) return { rows: all, blockers: [] }
+  const found = new Set(all.map(row => row.id))
+  const blockers: MergeBlocker[] = []
+  for (const id of requested) {
+    if (!found.has(id)) blockers.push({ code: 'storyboard_not_found', storyboard_id: id, message: `分镜 ${id} 不属于该剧集或已删除` })
   }
+  return { rows: all.filter(row => requested.has(row.id)), blockers }
+}
 
-  // 允许部分拼接:按镜号顺序拼接已生成的镜头,未生成的跳过
-  const clips = storyboards
-    .map(sb => ({ sb, url: sb.videoUrl || sb.composedVideoUrl }))
-    .filter(c => Boolean(c.url)) as { sb: typeof storyboards[number]; url: string }[]
+function previewWithDefaults(rows: StoryboardSelection[], canvas: MergeManifest['canvas'], blockers: MergeBlocker[]): MergePreflight {
+  return {
+    version: 2, clips: rows.map(row => previewClipFromStoryboard(row)), boundaries: [], total_duration_ms: 0,
+    canvas, fps: '30/1', timebase: '1/30', blockers, manifest: null,
+  }
+}
 
-  if (clips.length === 0) throw new Error('所选镜头还没有可拼接的视频')
-
-  // 拼接前探测 ffmpeg：二进制损坏时 fluent-ffmpeg 的同步 EFTYPE 会崩掉整个进程，
-  // 这里提前拦截并给出可操作的修复指引（路由层会作为 400 返回前端）
+/** Probe and build the exact v2 timeline. This does no generation and is safe for preview. */
+export async function previewEpisodeMerge(
+  episodeId: number, dramaId: number, storyboardIds?: number[], transitions?: TransitionOverride[],
+): Promise<MergePreflight> {
+  const [episode] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
+  const [drama] = await db.select().from(schema.dramas).where(eq(schema.dramas.id, dramaId))
+  let canvas: MergeManifest['canvas']
+  const blockers: MergeBlocker[] = []
+  try { canvas = resolveCanvas(episode?.resolution, drama?.aspectRatio) } catch (error) {
+    blockers.push({ code: 'canvas_unresolved', message: error instanceof Error ? error.message : String(error) })
+    canvas = { width: 1280, height: 720, aspect_ratio: '16:9', resolution: '720p' }
+  }
+  const selection = await loadSelection(episodeId, storyboardIds)
+  blockers.push(...selection.blockers)
   const suite = await checkFfmpegSuite()
-  if (!suite.ffmpeg || !suite.ffprobe) {
-    throw new Error('本机 ffmpeg 不可用，无法拼接视频（常见于 node_modules 跨平台拷贝或 ffmpeg-static 下载损坏）。请删除 node_modules 后在本机重新 npm install，或设置 FFMPEG_BIN 指向有效的 ffmpeg 可执行文件后重启服务')
+  if (!suite.ffprobe) blockers.push({ code: 'ffprobe_unavailable', message: '本机 ffprobe 不可用，无法读取视频实际帧数和时长' })
+  if (!suite.ffmpeg) blockers.push({ code: 'ffmpeg_unavailable', message: '本机 ffmpeg 不可用，无法导出视频' })
+
+  const sources: TimelineSource[] = []
+  const previewClips: PreviewClip[] = []
+  for (const row of selection.rows) {
+    const url = row.videoUrl || row.composedVideoUrl
+    if (!url) {
+      blockers.push({ code: 'missing_video_url', storyboard_id: row.id, message: `分镜 S${row.storyboardNumber} 没有可用视频 URL` })
+      previewClips.push(previewClipFromStoryboard(row))
+      continue
+    }
+    let filePath: string
+    let stat: fs.Stats
+    try { filePath = toAbsoluteVideoPath(url); stat = assertReadableVideo(filePath) } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      blockers.push({ code: 'video_unreadable', storyboard_id: row.id, message: `分镜 S${row.storyboardNumber} 视频不可读：${message}` })
+      previewClips.push(previewClipFromStoryboard(row)); continue
+    }
+    if (!suite.ffprobe) { previewClips.push(previewClipFromStoryboard(row)); continue }
+    try {
+      const probe = await probeMedia(filePath)
+      sources.push({
+        storyboard_id: row.id, storyboard_number: row.storyboardNumber, previous_storyboard_id: row.previousStoryboardId,
+        video_task_id: row.videoTaskId, url, duration_ms: probe.duration_ms, probe,
+        source_size: stat.size, source_mtime_ms: stat.mtimeMs, transition: row.transitionConfig,
+      })
+      previewClips.push(previewClipFromStoryboard(row, probe))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      blockers.push({ code: 'ffprobe_failed', storyboard_id: row.id, message: `分镜 S${row.storyboardNumber} 无法探测视频：${message}` })
+      previewClips.push(previewClipFromStoryboard(row))
+    }
   }
-
-  // 校验视频文件真实存在:DB 里的 video_url 可能指向已被清理的文件,
-  // 直接拼会得到 ffmpeg 的 "No such file or directory" 晦涩报错
-  const missing = clips.filter(c => !fs.existsSync(toAbsPath(c.url)))
-  if (missing.length > 0) {
-    const nums = missing.map(c => `S${c.sb.storyboardNumber}`).join('、')
-    throw new Error(`镜头 ${nums} 的视频文件已丢失（本地文件不存在），请重新生成这些镜头的视频，或在拼接时取消勾选`)
+  // Keep the old readiness invariant explicit: every requested storyboard must have a readable source.
+  const readyVideos = sources
+  const storyboards = selection.rows
+  if (blockers.length || readyVideos.length !== storyboards.length || readyVideos.length === 0) {
+    if (!blockers.length && readyVideos.length === 0) blockers.push({ code: 'no_clips', message: '所选镜头还没有可拼接的视频' })
+    return { ...previewWithDefaults(selection.rows, canvas, blockers), clips: previewClips }
   }
+  let manifest: MergeManifest
+  try {
+    manifest = buildTimelineManifest({ episodeId, dramaId, createdAt: now(), canvas, sources, overrides: toTransitionOverrides(transitions) })
+  } catch (error) {
+    blockers.push({ code: 'invalid_transition', message: error instanceof Error ? error.message : String(error) })
+    return { ...previewWithDefaults(selection.rows, canvas, blockers), clips: previewClips }
+  }
+  const clipById = new Map(manifest.clips.map(clip => [clip.storyboard_id, clip]))
+  return {
+    version: 2, clips: previewClips.map(clip => ({ ...clip, offset_ms: clipById.get(clip.storyboard_id)?.offset_ms ?? null })),
+    boundaries: manifest.boundaries, total_duration_ms: manifest.total_duration_ms,
+    canvas: manifest.canvas, fps: manifest.fps, timebase: manifest.timebase, blockers, manifest,
+  }
+}
 
-  const videos = clips.map(c => c.url)
+export function publicMergePreview(preview: MergePreflight): Omit<MergePreflight, 'manifest'> {
+  const { manifest: _manifest, ...publicPreview } = preview
+  return publicPreview
+}
 
-  logTaskStart('MergeTask', 'episode-merge', { episodeId, dramaId, clips: videos.length })
-
-  // 创建 merge 记录
-  const ts = now()
+/** Start an asynchronous export after complete preflight. Old scenes arrays remain readable. */
+export async function mergeEpisodeVideos(
+  episodeId: number, dramaId: number, storyboardIds?: number[], transitions?: TransitionOverride[],
+): Promise<number> {
+  const preview = await previewEpisodeMerge(episodeId, dramaId, storyboardIds, transitions)
+  if (preview.blockers.length) throw new MergePreflightError(preview)
+  if (!preview.manifest) throw new MergePreflightError({ ...preview, blockers: [{ code: 'no_manifest', message: '拼接时间轴为空' }] })
+  const manifest = preview.manifest
+  logTaskStart('MergeTask', 'episode-merge', { episodeId, dramaId, clips: manifest.clips.length })
   const res = await db.insert(schema.videoMerges).values({
-    episodeId,
-    dramaId,
-    title: `Episode ${episodeId} Merge`,
-    provider: 'ffmpeg',
-    model: 'ffmpeg-concat-h264-aac',
-    status: 'processing',
-    scenes: JSON.stringify(videos),
-    createdAt: ts,
+    episodeId, dramaId, title: `Episode ${episodeId} Merge`, provider: 'ffmpeg', model: 'ffmpeg-concat-h264-aac-v2',
+    status: 'processing', scenes: JSON.stringify(manifest), createdAt: now(),
   })
   const mergeId = getInsertId(res)
-
-  // 异步执行
-  doMerge(mergeId, episodeId, videos).catch(async err => {
-    logTaskError('MergeTask', 'episode-merge', { mergeId, episodeId, error: err.message })
-    console.error(`[Merge] Failed:`, err)
-    await db.update(schema.videoMerges)
-      .set({ status: 'failed', errorMsg: err.message })
-      .where(eq(schema.videoMerges.id, mergeId))
+  doMerge(mergeId, episodeId, manifest).catch(async error => {
+    const message = error instanceof Error ? error.message : String(error)
+    logTaskError('MergeTask', 'episode-merge', { mergeId, episodeId, error: message })
+    console.error('[Merge] Failed:', error)
+    await db.update(schema.videoMerges).set({ status: 'failed', errorMsg: message }).where(eq(schema.videoMerges.id, mergeId))
   })
-
   return mergeId
 }
 
-async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
-  // 生成 concat 列表文件
-  const listDir = path.join(STORAGE_ROOT, 'temp')
-  fs.mkdirSync(listDir, { recursive: true })
-  const listPath = path.join(listDir, `${uuid()}.txt`)
-
-  const listContent = videos
-    .map(v => `file '${toAbsPath(v)}'`)
-    .join('\n')
-  fs.writeFileSync(listPath, listContent, 'utf-8')
-
-  // 输出文件
+async function doMerge(mergeId: number, episodeId: number, manifest: MergeManifest): Promise<void> {
   const outputDir = path.join(STORAGE_ROOT, 'merged')
-  fs.mkdirSync(outputDir, { recursive: true })
   const outputFilename = `${uuid()}.mp4`
   const outputPath = path.join(outputDir, outputFilename)
-  // H3 emits 32 kHz audio. Preserve the first available source sample rate
-  // instead of forcing every episode through a 48 kHz resampler.
-  const audioSampleRate = await getFirstAudioSampleRate(videos)
-
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(listPath)
-      .inputOptions(['-f', 'concat', '-safe', '0'])
-      .outputOptions([
-        '-fflags', '+genpts',
-        '-c:v', 'libx264',
-        '-preset', 'medium',
-        '-crf', '23',
-        '-c:a', 'aac',
-        ...(audioSampleRate ? ['-ar', String(audioSampleRate)] : []),
-        '-b:a', '192k',
-        '-movflags', '+faststart',
-      ])
-      .output(outputPath)
-      .on('end', () => resolve())
-      .on('error', (err) => reject(err))
-      .run()
-
-  })
-
-  // 清理临时文件
-  fs.unlinkSync(listPath)
-
-  // 获取时长
-  const duration = await getVideoDuration(outputPath)
-
   const mergedRelative = `static/merged/${outputFilename}`
-
-  // 成片海报帧（导出页封面用）
-  await extractVideoPoster(mergedRelative)
-
-  // 更新 merge 记录
-  await db.update(schema.videoMerges)
-    .set({ status: 'completed', mergedUrl: mergedRelative, duration, completedAt: now() })
-    .where(eq(schema.videoMerges.id, mergeId))
-
-  // 更新 episode
-  await db.update(schema.episodes)
-    .set({ videoUrl: mergedRelative, updatedAt: now() })
-    .where(eq(schema.episodes.id, episodeId))
-
-  logTaskSuccess('MergeTask', 'episode-merge', { mergeId, episodeId, output: mergedRelative, duration, clips: videos.length })
-}
-
-async function getFirstAudioSampleRate(videos: string[]): Promise<number | null> {
-  for (const video of videos) {
-    const sampleRate = await new Promise<number | null>((resolve) => {
-      ffmpeg.ffprobe(toAbsPath(video), (err, metadata) => {
-        if (err) { resolve(null); return }
-        const stream = metadata.streams?.find(item => item.codec_type === 'audio')
-        const value = Number(stream?.sample_rate)
-        resolve(Number.isInteger(value) && value > 0 ? value : null)
-      })
+  const tempRoot = path.join(STORAGE_ROOT, 'temp')
+  try {
+    const result = await executeMergeManifest(manifest, outputPath, {
+      tempRoot,
+      onNormalized: async normalized => {
+        await db.update(schema.videoMerges).set({ scenes: JSON.stringify(normalized) }).where(eq(schema.videoMerges.id, mergeId))
+      },
     })
-    if (sampleRate) return sampleRate
+    await extractVideoPoster(mergedRelative)
+    await db.update(schema.videoMerges).set({
+      status: 'completed', mergedUrl: mergedRelative, duration: Math.round(result.probe.duration), completedAt: now(), scenes: JSON.stringify(result.manifest),
+    }).where(eq(schema.videoMerges.id, mergeId))
+    await db.update(schema.episodes).set({
+      videoUrl: mergedRelative, duration: Math.round(result.probe.duration), updatedAt: now(),
+    }).where(eq(schema.episodes.id, episodeId))
+    logTaskSuccess('MergeTask', 'episode-merge', {
+      mergeId, episodeId, output: mergedRelative, duration: result.probe.duration,
+      expectedDuration: manifest.total_duration_ms / 1000, clips: manifest.clips.length,
+    })
+  } catch (error) {
+    // executeMergeManifest only creates/cleans its owned task directory and never deletes old outputs.
+    throw error
   }
-  return null
 }
 
-function getVideoDuration(filePath: string): Promise<number> {
-  return new Promise((resolve) => {
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
-      if (err) { resolve(0); return }
-      resolve(Math.round(metadata.format.duration || 0))
-    })
-  })
-}
+export { toAbsoluteVideoPath }

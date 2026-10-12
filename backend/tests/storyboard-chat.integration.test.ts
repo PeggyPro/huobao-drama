@@ -101,6 +101,33 @@ test('real route saves string booleans through the real tool, appends batches an
   assert.equal((sqlite.prepare('SELECT duration FROM episodes WHERE id = 9').get() as { duration: number }).duration, 1)
 })
 
+for (const [model, supported] of [['huobao_minimax_h3_reference_turbo_api', true], ['huobao_wan22_5b_t2v_32gb_api', false]] as const) {
+  test(`new-shot continuity respects ${model} capability before replacing existing rows`, async () => {
+    const ts = '2026-01-01T00:00:00Z'
+    sqlite.prepare(`INSERT INTO ai_service_configs (id,service_type,provider,name,base_url,api_key,model,is_active,priority,created_at,updated_at)
+      VALUES (12,'video','comfyui','test','http://model.invalid','',?,1,1,?,?)`).run(JSON.stringify([model]), ts, ts)
+    sqlite.prepare('UPDATE episodes SET video_config_id=12 WHERE id=9').run()
+    const oldRows = savedShots()
+    let requests = 0
+    globalThis.fetch = async () => {
+      requests++
+      assert.ok(requests <= 2)
+      if (supported && requests === 2) return sse({ role: 'assistant', content: '已保存全部分镜。' }, 'stop')
+      return toolResponse('saveStoryboards', { replace_existing: true, storyboards: [shot(1), {
+        ...shot(2), continuity: { mode: 'motion_context', relation: 'continuous_action', source_shot_number: 1, needs_review: 'false', start_state: '展开信纸', end_state: '抬头' },
+      }] }, `capability-${requests}`)
+    }
+    const response = await chat()
+    assert.equal(response.status, supported ? 200 : 400, JSON.stringify(await response.json()))
+    assert.equal(requests, 2)
+    if (supported) {
+      const rows = sqlite.prepare('SELECT id,continuity_plan FROM storyboards WHERE episode_id=9 ORDER BY storyboard_number').all() as { id: number; continuity_plan: string | null }[]
+      assert.equal(rows.length, 2)
+      assert.equal(JSON.parse(rows[1].continuity_plan!).source_storyboard_id, rows[0].id)
+    } else assert.deepEqual(savedShots(), oldRows, 'unsupported continuity must not clear any original rows')
+  })
+}
+
 test('boolean input compatibility rejects ambiguous values and empty replacement before any write', () => {
   const schema = storyboardTools.saveStoryboards.inputSchema!
   for (const [value, expected] of [[true, true], [false, false], ['true', true], ['false', false]] as const) {

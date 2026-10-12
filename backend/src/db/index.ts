@@ -25,11 +25,11 @@ sqlite.pragma('busy_timeout = 5000')
 sqlite.pragma('synchronous = NORMAL')
 
 /** 启动建表（DDL 幂等重放 + 种子补缺）。SQLite 无连接就绪问题，无需重试 */
-export function initDb() {
-  initSqliteSchema(sqlite)
+export async function initDb() {
+  await initSqliteSchema(sqlite)
 }
 
-initDb()
+await initDb()
 
 // MySQL 老用户一次性自动迁移：仅在显式配置 MySQL + 空库 + 无标记时触发（详见 mysql-import.ts 头注释）
 await maybeAutoImportMysql(sqlite, dbPath)

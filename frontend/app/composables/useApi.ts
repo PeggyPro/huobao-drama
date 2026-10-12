@@ -1,4 +1,9 @@
+import type { BatchPreview, MergeRequest } from '~/utils/continuity'
+
 const BASE = '/api/v1'
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public data?: any) { super(message); this.name = 'ApiError' }
+}
 
 async function req<T = any>(method: string, path: string, body?: any): Promise<T> {
   const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' } }
@@ -14,7 +19,7 @@ async function req<T = any>(method: string, path: string, body?: any): Promise<T
 
     if (!resp.ok || (json.code && json.code >= 400)) {
       console.log(`%c[API] %c${method} ${path} %c${resp.status} %c${ms}ms`, 'color:#888', 'color:#ef5350', 'color:#ef5350;font-weight:bold', 'color:#888', json.message || '')
-      throw new Error(json.message || `${resp.status}`)
+      throw new ApiError(json.message || `${resp.status}`, resp.status, json.data)
     }
 
     console.log(`%c[API] %c${method} ${path} %c${resp.status} %c${ms}ms`, 'color:#888', 'color:#66bb6a', 'color:#66bb6a;font-weight:bold', 'color:#888')
@@ -56,6 +61,7 @@ export const episodeAPI = {
   extractStatus: (id: number) => api.get(`/episodes/${id}/extract-status`),
   generateVideoPrompts: (id: number, model?: string, configId?: number, storyboardIds?: number[]) => api.post(`/episodes/${id}/generate-video-prompts`, { model: model || undefined, config_id: configId || undefined, storyboard_ids: storyboardIds?.length ? storyboardIds : undefined }),
   videoPromptsStatus: (id: number) => api.get(`/episodes/${id}/video-prompts-status`),
+  analyzeContinuity: (id: number, model?: string, configId?: number, videoModel?: string, videoConfigId?: number) => api.post(`/episodes/${id}/analyze-continuity`, { model: model || undefined, config_id: configId || undefined, video_model: videoModel || undefined, video_config_id: videoConfigId || undefined }),
 }
 
 export const storyboardAPI = {
@@ -94,11 +100,17 @@ export const taskAPI = {
   generate: (d: any) => api.post('/tasks', d),
   get: (id: number) => api.get(`/tasks/${id}`),
   del: (id: number) => api.del(`/tasks/${id}`),
-  list: (params?: { type?: 'image' | 'video'; drama_id?: number; storyboard_id?: number }) => {
+  previewBatch: (body: { episode_id: number; tasks: any[] }) => api.post<BatchPreview>('/tasks/batch/preview', body),
+  batch: (body: { episode_id: number; tasks: any[]; request_key: string }) => api.post<{ batch_id: string; task_ids: number[] }>('/tasks/batch', body),
+  retry: (id: number, continueDependents = false) => api.post<{ id: number }>(`/tasks/${id}/retry`, { continue_dependents: continueDependents }),
+  cancel: (id: number) => api.post(`/tasks/${id}/cancel`, {}),
+  reconcile: (id: number, continueDependents = false) => api.post<{ id: number; reconciled: boolean; status: string }>(`/tasks/${id}/reconcile`, { continue_dependents: continueDependents }),
+  list: (params?: { type?: 'image' | 'video'; drama_id?: number; storyboard_id?: number; batch_id?: string }) => {
     const query = new URLSearchParams()
     if (params?.type) query.set('type', params.type)
     if (params?.drama_id) query.set('drama_id', String(params.drama_id))
     if (params?.storyboard_id) query.set('storyboard_id', String(params.storyboard_id))
+    if (params?.batch_id) query.set('batch_id', params.batch_id)
     return api.get(`/tasks${query.size ? `?${query.toString()}` : ''}`)
   },
   // 按集聚合生成任务（sys_task + video_merges）
@@ -113,7 +125,7 @@ async function uploadReq<T = any>(path: string, file: File): Promise<T> {
   const json = await resp.json()
   if (!resp.ok || (json.code && json.code >= 400)) {
     console.log(`%c[API] %cPOST ${path} %c${resp.status}`, 'color:#888', 'color:#ef5350', 'color:#ef5350;font-weight:bold')
-    throw new Error(json.message || `${resp.status}`)
+    throw new ApiError(json.message || `${resp.status}`, resp.status, json.data)
   }
   return json.data ?? json
 }
@@ -124,7 +136,8 @@ export const uploadAPI = {
   audio: (f: File) => uploadReq<{ url: string; path: string }>('/upload/audio', f),
 }
 export const mergeAPI = {
-  merge: (epId: number, storyboardIds?: number[]) => api.post(`/merge/episodes/${epId}/merge`, storyboardIds?.length ? { storyboard_ids: storyboardIds } : {}),
+  preview: (epId: number, body: MergeRequest = {}) => api.post(`/merge/episodes/${epId}/preview`, body),
+  merge: (epId: number, body: MergeRequest | number[] = {}) => api.post(`/merge/episodes/${epId}/merge`, Array.isArray(body) ? { storyboard_ids: body } : body),
   status: (epId: number) => api.get(`/merge/episodes/${epId}/merge`),
   list: (epId: number) => api.get<any[]>(`/merge/episodes/${epId}/merges`),
 }

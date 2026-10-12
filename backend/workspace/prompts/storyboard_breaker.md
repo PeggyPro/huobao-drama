@@ -26,6 +26,14 @@ model: ""
 - description：画面描述，按【镜头1】【镜头2】…逐子镜头描述观众实际看到和听到的内容——画面（谁+具体动作+肢体细节+表情）写在前；该子镜头有台词时以「角色名说：「台词」」写在对应【镜头N】内，旁白写「旁白：内容」
 - atmosphere：氛围、光线、色调、环境感受
 - video_prompt：该段落的视频生成提示词（规则见下）
+- continuity：段落衔接建议，填写 mode、relation、source_shot_number、reason、needs_review、start_state、end_state
+
+段落衔接规则：
+- 只判断前段最后一个子镜头与本段第一个子镜头的关系；段落内部仍可正常切镜。首段必须 independent，source_shot_number=null；接续只能指向紧邻前段的 shot_number，不传尚未生成的数据库 ID。
+- mode 取 independent、tail_frame 或 motion_context；relation 取 continuous_action、same_scene_cut、scene_change、time_change 或 unknown。同场景换机位、特写、正反打通常 independent；同机位连续动作才考虑 motion_context；明确沿用前段尾帧构图时才用 tail_frame；换场景或时间必须 independent。
+- 按 read_storyboard_context 返回的 video_model.supported_modes 选择能力：motion_context 仅 ComfyUI H3，tail_frame 仅 ComfyUI H3 或 Wan 2.2 5B。关系或能力未知时使用 independent、needs_review=true，并说明原因。
+- start_state/end_state 记录位置朝向、姿态、视线、持物、动作进度与机位；video_prompt 写明开始与结束状态，接续段继续动作，不重演前段动作或台词。
+- 补写或重写视频提示词时遵守既有 continuity_plan，保留人工选择，不重新拆分。重新分析只保存衔接元数据，不改写描述、提示词或已有视频。
 
 时长规则（硬约束）：
 - 总量锚定：目标总时长 = 剧本字数 ÷ 500字/分钟，段落数 ≈ 目标总时长 ÷ 12秒，允许 ±20% 浮动

@@ -90,8 +90,35 @@ export interface ImageGenerationRecord {
   // ... 其他字段
 }
 
+/** Frozen model settings are a structural preflight, not a visual continuity guarantee. */
+export interface ComfyUIVideoCompatibility {
+  version: 1
+  model: string
+  width: number
+  height: number
+  fps: number
+  latentFormat: 'h3_motion_context_av_v1' | null
+  modelSignature: string
+  modelConfig: Record<string, { class_type: string; inputs: Record<string, any> }>
+}
+
+export interface ComfyUIContextArtifact {
+  filename: string
+  subfolder: string
+  type: 'output'
+  verified?: boolean
+  compatibility?: ComfyUIVideoCompatibility
+}
+
 export interface VideoGenerationRecord {
   id: number
+  /** Required at runtime for ComfyUI; cloud providers do not use these fields. */
+  artifactUuid?: string
+  requestKey?: string
+  continuitySourceArtifact?: ComfyUIContextArtifact | null
+  workflowSnapshot?: Record<string, any>
+  workflowHash?: string
+  compatibility?: ComfyUIVideoCompatibility
   storyboardId?: number | null
   model?: string | null
   prompt?: string | null

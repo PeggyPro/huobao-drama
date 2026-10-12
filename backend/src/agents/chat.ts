@@ -36,7 +36,7 @@ function toolTargets(name: string, input: unknown): string[] {
 }
 
 // Full output uses payload.result; stopWhen uses AI SDK output { type, value }.
-function toolOutcome(entry: unknown) {
+export function toolOutcome(entry: unknown) {
   const payload = toolPayload(entry)
   const output = record(payload.result ?? payload.output)
   const wrapped = typeof output.type === 'string' && 'value' in output

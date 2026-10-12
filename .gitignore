@@ -41,6 +41,7 @@ data/*.sqlite3-wal
 data/*.sqlite3-shm
 data/public.sql
 data/*.bak*
+data/backups/
 data/static/
 data/storage/
 

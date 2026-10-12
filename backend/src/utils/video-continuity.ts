@@ -4,8 +4,11 @@ import path from 'node:path'
 import { STORAGE_ROOT } from './paths.js'
 import { ffmpeg, checkFfmpegSuite } from './ffmpeg.js'
 
-/** Extract the last decoded frame at full resolution, not the video poster. */
-export async function extractVideoLastFrame(videoPath: string): Promise<string> {
+/** Extract the last decoded frame at full resolution, with a cache per source task version. */
+export async function extractVideoLastFrame(videoPath: string, sourceTaskId?: number): Promise<string> {
+  if (sourceTaskId !== undefined && (!Number.isSafeInteger(sourceTaskId) || sourceTaskId <= 0)) {
+    throw new Error('source_task_id 必须为正整数')
+  }
   if (!/^\/?static\/videos\/.+\.(?:mp4|webm|mov|mkv|m4v)$/i.test(videoPath)) {
     throw new Error('上一分镜需要已下载到本地的视频，才能提取续接尾帧')
   }
@@ -16,7 +19,10 @@ export async function extractVideoLastFrame(videoPath: string): Promise<string> 
     throw new Error('视频路径超出本地素材目录')
   }
   const info = await fs.stat(input)
-  const digest = createHash('sha256').update(`${input}:${info.size}:${info.mtimeMs}`).digest('hex').slice(0, 24)
+  if (!info.isFile() || !info.size) throw new Error('来源视频文件为空或不可读')
+  const digest = createHash('sha256').update(JSON.stringify({
+    input, size: info.size, mtimeMs: info.mtimeMs, sourceTaskId: sourceTaskId ?? null, position: 'last',
+  })).digest('hex').slice(0, 24)
   const filename = `continuity-${digest}.png`
   const output = path.join(root, 'images', filename)
   const outputRelative = `static/images/${filename}`

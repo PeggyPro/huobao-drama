@@ -9,7 +9,6 @@ import { now } from '../utils/response.js'
 import { downloadFile, fetchImageAsCompressedDataUrl, generateImageThumb, readImageAsCompressedDataUrl, readImageAsDataUrl, saveBase64Image } from '../utils/storage.js'
 import { extractVideoPoster } from '../utils/video-poster.js'
 import { getImageAdapter, getVideoAdapter } from './adapters/registry'
-import { resolveComfyUIVideoSeed } from './adapters/comfyui.js'
 import type { AIConfig } from './adapters/types'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 
@@ -128,60 +127,16 @@ export async function generateImage(params: GenerateImageParams): Promise<number
 }
 
 export async function generateVideo(params: GenerateVideoParams): Promise<number> {
-  // 指定配置（集锁定）可能已停用/删除/厂商收敛，失效时回退到当前启用配置
-  const config = params.configId
-    ? (await getConfigById(params.configId)) ?? await getActiveConfig('video')
-    : await getActiveConfig('video')
-  if (!config) throw new Error('未配置视频模型，请先到「设置」页添加并启用 AI 服务')
-
-  const isComfyUI = config.provider.toLowerCase() === 'comfyui'
-  // Persist the actual noise seed before async preparation starts. A redraw is
-  // a new task; rebuilding this task keeps the same seed for reproducibility.
-  const seed = isComfyUI ? resolveComfyUIVideoSeed(params.seed) : params.seed
-  const h3MotionContextEnabled = isComfyUI && /minimax[_-]?h3/i.test(params.model || config.model)
-  const id = await createTask('video', config, {
-    storyboardId: params.storyboardId,
-    dramaId: params.dramaId,
-    prompt: params.prompt,
-    model: params.model || config.model,
-  }, {
-    referenceMode: params.referenceMode || 'reference',
-    h3_motion_context_version: h3MotionContextEnabled ? 1 : undefined,
-    imageUrl: params.imageUrl,
-    firstFrameUrl: params.firstFrameUrl,
-    lastFrameUrl: params.lastFrameUrl,
-    referenceImageUrls: params.referenceImageUrls,
-    continuityMode: params.continuityMode,
-    continuitySourceStoryboardId: params.continuitySourceStoryboardId,
-    referenceVideoUrls: params.referenceVideoUrls,
-    referenceAudioUrls: params.referenceAudioUrls,
-    referenceFileUrl: params.referenceFileUrl,
-    referenceLinkUrl: params.referenceLinkUrl,
-    generateAudio: params.generateAudio === false ? 0 : 1,
-    duration: params.duration,
-    aspectRatio: params.aspectRatio,
-    // 统一存为项目内部格式，各适配器再转换为官方大小写与枚举。
-    resolution: normalizeStoredVideoResolution(params.resolution),
-    seed,
-    promptExtend: params.promptExtend,
-    watermark: params.watermark,
+  const { enqueueSingleVideo } = await import('./video-queue.js')
+  return enqueueSingleVideo({ type: 'video', storyboard_id: params.storyboardId, drama_id: params.dramaId,
+    prompt: params.prompt, model: params.model, config_id: params.configId,
+    image_url: params.imageUrl, first_frame_url: params.firstFrameUrl, last_frame_url: params.lastFrameUrl,
+    reference_image_urls: params.referenceImageUrls, reference_video_urls: params.referenceVideoUrls,
+    reference_audio_urls: params.referenceAudioUrls, file_url: params.referenceFileUrl, link_url: params.referenceLinkUrl,
+    continuity_mode: params.continuityMode, continuity_source_storyboard_id: params.continuitySourceStoryboardId,
+    generate_audio: params.generateAudio, duration: params.duration, aspect_ratio: params.aspectRatio,
+    resolution: normalizeStoredVideoResolution(params.resolution), seed: params.seed, prompt_extend: params.promptExtend, watermark: params.watermark,
   })
-
-  logTaskStart('VideoTask', 'enqueue', {
-    id,
-    provider: config.provider,
-    storyboardId: params.storyboardId,
-    dramaId: params.dramaId,
-    referenceMode: params.referenceMode || 'reference',
-    duration: params.duration || 5,
-    seed,
-  })
-  logTaskPayload('VideoTask', 'enqueue params', {
-    id,
-    config: { provider: config.provider, model: config.model, baseUrl: config.baseUrl },
-    params: { ...params, seed },
-  })
-  return id
 }
 
 async function createTask(
@@ -246,6 +201,7 @@ const COMFYUI_RECOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000
 export async function recoverInterruptedTasks() {
   const cutoff = Date.now() - COMFYUI_RECOVERY_MAX_AGE_MS
   const candidates = (await db.select().from(schema.sysTask))
+    .filter(record => record.type === 'image')
     .filter(record => record.errorMsg === SERVICE_RESTART_ERROR)
     .filter(record => record.provider?.toLowerCase() === 'comfyui')
     .filter(record => record.taskId && record.status === 'failed')

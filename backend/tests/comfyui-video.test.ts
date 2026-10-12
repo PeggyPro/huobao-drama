@@ -67,7 +67,10 @@ test('missing history stays pending and execution failures retain the actual err
 })
 
 test('storyboard duration reaches Wan and H3 without mutating the workflow template', async () => {
-  const build = async (duration?: number) => (await comfyuiVideoAdapter.buildGenerateRequest(config, { id: 1, prompt: 'test', duration })).body.prompt
+  const build = async (duration?: number) => (await comfyuiVideoAdapter.buildGenerateRequest(config, {
+    id: 1, artifactUuid: 'ca7561a4-408c-4e97-9900-fd41b6c1ef16', requestKey: 'duration-request-1',
+    continuitySourceArtifact: null, prompt: 'test', duration,
+  })).body.prompt
   const twelve = await build(12)
   assert.equal(twelve['7'].inputs.length, 289)
   assert.equal(twelve['133'].inputs.value, 12)

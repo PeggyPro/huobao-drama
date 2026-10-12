@@ -493,6 +493,10 @@
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                   {{ sbs.length ? t('episode.sb.rebreak') : t('episode.sb.startBreak') }}
                 </button>
+                <button class="btn btn-sm" :disabled="analyzingContinuity || !sbs.length || continuitySavingIds.length > 0" @click="analyzeContinuity">
+                  <Loader2 v-if="analyzingContinuity" :size="11" class="animate-spin" />
+                  {{ ct('analyze') }}
+                </button>
                 <button class="btn btn-sm" :disabled="videoPromptBatch.running || !sbs.length" @click="batchVideoPrompts">
                   <Loader2 v-if="videoPromptBatch.running" :size="11" class="animate-spin" />
                   <svg v-else width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -745,6 +749,8 @@
               </div>
             </aside>
 
+            <p v-if="displayedVideoStale" class="continuity-notice">{{ ct('stale') }}</p>
+            <p v-if="isPendingVideo(selectedSb.id) && hasVid(selectedSb)" class="continuity-notice">{{ ct('activeVideo') }}</p>
             <div v-if="sbVideoHistory.length" class="video-player-history">
               <div class="video-player-history-head">
                 <span>{{ t('episode.vid.history') }}</span>
@@ -790,42 +796,14 @@
                     </div>
                     <div v-else class="video-bound-refs-empty">{{ t('episode.inspector.noBoundRefs') }}</div>
                     <div v-if="videoReferenceHint" class="video-param-hint">{{ videoReferenceHint }}</div>
-                    <div v-if="(supportsVideoContinuity && previousContinuityShot) || selectedContinuityFrame || canUseMotionContext || selectedMotionContext" class="video-continuity-control">
-                      <div class="video-inspector-prompt-head">
-                        <span class="video-inspector-label">镜头接续</span>
-                        <div class="video-continuity-actions">
-                          <button v-if="canUsePreviousFrame" type="button" class="btn btn-sm"
-                            :disabled="continuityLoadingIds.includes(selectedSb.id)"
-                            @click="usePreviousVideoFrame(selectedSb)">
-                            <Loader2 v-if="continuityLoadingIds.includes(selectedSb.id)" :size="11" class="animate-spin" />
-                            {{ continuityLoadingIds.includes(selectedSb.id) ? '提取中…' : '上一镜头尾帧' }}
-                          </button>
-                          <button v-if="canUseMotionContext" type="button" class="btn btn-sm"
-                            @click="usePreviousMotionContext(selectedSb)">
-                            H3 latent 无缝续接
-                          </button>
-                        </div>
-                      </div>
-                      <div v-if="selectedContinuityFrame" class="video-continuity-frame">
-                        <button type="button" class="video-continuity-thumb" title="查看接续首帧"
-                          @click="openImageViewer(assetImageSrc({ imageUrl: selectedContinuityFrame.firstFrameUrl }), '接续首帧')">
-                          <img :src="assetImageSrc({ imageUrl: selectedContinuityFrame.firstFrameUrl })" alt="上一分镜尾帧" />
-                        </button>
-                        <div>
-                          <div class="video-param-hint">上一镜头尾帧作为本镜头首帧</div>
-                          <button type="button" class="btn btn-sm" :disabled="continuityLoadingIds.includes(selectedSb.id)"
-                            @click="clearContinuityFrame(selectedSb)">移除尾帧</button>
-                        </div>
-                      </div>
-                      <div v-else-if="selectedMotionContext" class="video-continuity-frame">
-                        <div class="video-continuity-context-badge">H3</div>
-                        <div>
-                          <div class="video-param-hint">第 {{ selectedMotionContext.sourceStoryboardNumber }} 镜头的音视频 latent context</div>
-                          <button type="button" class="btn btn-sm" @click="clearMotionContext(selectedSb)">移除 latent 续接</button>
-                        </div>
-                      </div>
-                      <div v-else class="video-param-hint">{{ canUseMotionContext ? 'H3 latent 续接会沿用上一镜头的动作和声音；来源镜头需在接入该功能后重新生成。' : canUsePreviousFrame ? '尾帧模式会将上一镜头最后画面作为本镜头首帧。' : '上一镜头完成视频生成后可选择接续。' }}</div>
-                    </div>
+                    <ContinuityEditor
+                      :key="selectedSb.id + ':' + continuityRevision(selectedSb)"
+                      :storyboard="selectedSb" :previous="previousContinuityShot"
+                      :saving="continuitySavingIds.includes(selectedSb.id) || isPendingVideo(selectedSb.id)"
+                      :h3="isComfyuiH3Video" :wan="isComfyuiWanVideo"
+                      @save="plan => saveContinuity(selectedSb, plan)"
+                    />
+
                   </section>
                 </div>
 
@@ -970,10 +948,10 @@
                   <button
                     class="btn btn-sm btn-primary"
                     :disabled="!exportSelectedReadyIds.length"
-                    @click="doMerge(exportSelectedReadyIds)"
+                    @click="openExportPreview(exportSelectedReadyIds)"
                   >
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-                    {{ t('episode.export.mergeSelected', { n: exportSelectedReadyIds.length }) }}
+                    {{ ct('exportPreview') }} · {{ exportSelectedReadyIds.length }}
                   </button>
                 </div>
               </div>
@@ -1095,6 +1073,16 @@
                   <span class="video-task-sep">·</span>
                   <span>#{{ row.id }}</span>
                 </div>
+                <div v-if="row.batch_id || row.retry_of_task_id" class="video-task-meta-line"><span v-if="row.batch_id">{{ ct('batch', { id: row.batch_id }) }}</span><span v-if="row.retry_of_task_id">{{ ct('retryOf', { id: row.retry_of_task_id }) }}</span></div>
+                <div v-if="row.status === 'queued' && row.depends_on_task_id" class="video-param-hint">{{ ct('dependency', { id: row.depends_on_task_id }) }}</div>
+                <div v-if="row.blocked_reason" class="video-task-error">{{ row.blocked_reason }}</div>
+                <div v-if="row.phase === 'submission_unknown'" class="continuity-notice">{{ ct('unknownHint') }}</div>
+                <div v-if="row.stale" class="continuity-notice">{{ ct('stale') }}</div>
+                <div v-if="row.kind === 'video'" class="continuity-task-actions">
+                  <button v-if="row.status === 'blocked' && row.phase === 'submission_unknown'" class="btn btn-sm" @click="askTaskAction(row, 'reconcile')">{{ ct('reconcile') }}</button>
+                  <button v-if="taskCanRetry(row)" class="btn btn-sm" @click="askTaskAction(row, 'retry')">{{ ct('retry') }}</button>
+                  <button v-if="taskIsActive(row) || row.status === 'blocked' || row.phase === 'submission_unknown'" class="btn btn-sm" @click="askTaskAction(row, 'cancel')">{{ ct('cancel') }}</button>
+                </div>
                 <div v-if="row.errorMsg" class="video-task-error" :title="row.errorMsg">
                   {{ mapError(row.errorMsg) }}
                   <div v-if="row.kind === 'video' && videoModerationHint(row.errorMsg)" class="video-task-error-hint">{{ videoModerationHint(row.errorMsg) }}</div>
@@ -1102,7 +1090,7 @@
               </div>
               <span :class="['video-task-status', 'is-' + genTaskStateClass(row.status)]">
                 <span :class="['dot', genTaskStateClass(row.status) === 'done' && 'ok', genTaskStateClass(row.status) === 'pending' && 'pending']" />
-                {{ genTaskStatusLabel(row.status) }}
+                {{ genTaskStatusLabel(row.status, row) }}
               </span>
             </div>
           </div>
@@ -1429,11 +1417,11 @@
         </div>
       </div>
 
-      <div v-if="batchVideoConfirm.open" class="overlay" @click.self="batchVideoConfirm.open = false">
+      <div v-if="batchVideoConfirm.open" class="overlay" @click.self="!batchSubmitting && (batchVideoConfirm.open = false)">
         <div class="dialog batch-video-dialog">
           <header class="dialog-head">
             <h2 class="dialog-title">{{ t('episode.vid.confirmTitle') }}</h2>
-            <button class="btn btn-ghost btn-icon" @click="batchVideoConfirm.open = false">
+            <button class="btn btn-ghost btn-icon" :disabled="batchSubmitting" @click="batchVideoConfirm.open = false">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </header>
@@ -1443,14 +1431,32 @@
             <div class="batch-video-row"><span>{{ t('episode.vid.confirmModel') }}</span><strong>{{ effectiveVideoModelLabel || t('episode.vid.defaultModel') }}</strong></div>
             <div class="batch-video-row"><span>{{ t('episode.vid.confirmResolution') }}</span><strong>{{ episodeResolutionLabel }}</strong></div>
             <p class="batch-video-note">{{ t('episode.vid.confirmNote') }}</p>
+            <p v-if="batchPreviewLoading" class="batch-video-note">{{ ct('previewing') }}</p>
+            <p v-if="batchPreviewError" class="continuity-notice" role="alert">{{ batchPreviewError }}</p>
+            <template v-if="batchPreview">
+              <p class="batch-video-note">{{ ct(batchBlockers.length ? 'blockers' : 'batchReady') }}</p>
+              <ul v-if="batchBlockers.length" class="continuity-notice"><li v-for="blocker in batchBlockers" :key="blocker">{{ blocker }}</li></ul>
+              <button v-if="batchBlockers.length" class="btn btn-sm" :disabled="batchSubmitting" @click="addBatchPrerequisites">{{ ct('addSources') }}</button>
+              <ul class="batch-dependencies"><li v-for="item in batchPreview.items" :key="item.storyboard_id">{{ batchItemLabel(item) }}</li></ul>
+            </template>
+            <button class="btn btn-sm" :disabled="batchPreviewLoading || batchSubmitting" @click="previewBatchVideos">{{ ct('previewAgain') }}</button>
+            <p class="batch-video-note">{{ ct('batchRetryHint') }}</p>
           </div>
           <footer class="dialog-foot">
-            <button class="btn" @click="batchVideoConfirm.open = false">{{ t('common.cancel') }}</button>
-            <button class="btn btn-primary" @click="confirmBatchVideos">{{ t('episode.vid.confirmStart', { n: batchVideoConfirm.targets.length }) }}</button>
+            <button class="btn" :disabled="batchSubmitting" @click="batchVideoConfirm.open = false">{{ t('common.cancel') }}</button>
+            <button class="btn btn-primary" :disabled="!batchCanSubmit" @click="confirmBatchVideos">{{ t('episode.vid.confirmStart', { n: batchVideoConfirm.targets.length }) }}</button>
           </footer>
         </div>
       </div>
 
+      <ContinuityExport v-if="exportPreviewOpen" :episode-id="epId" :storyboards="sbs" :ids="exportPreviewIds" :saving="continuitySavingIds.length > 0" :submitting="exportSubmitting" @save="saveTransition" @merge="doMerge" @close="exportPreviewOpen = false" />
+      <div v-if="taskAction.open" class="overlay task-action-overlay" @click.self="!taskAction.loading && (taskAction.open = false)">
+        <section class="dialog batch-video-dialog" role="alertdialog" aria-modal="true" :aria-label="ct(taskAction.action + 'Title')">
+          <header class="dialog-head"><h2 class="dialog-title">{{ ct(taskAction.action + 'Title') }}</h2></header>
+          <div class="dialog-body"><p class="continuity-notice">{{ ct(taskAction.action + 'Description') }}</p><label v-if="taskAction.action !== 'cancel'" class="continuity-retry-option"><input v-model="taskAction.continueDependents" type="checkbox" :disabled="taskAction.loading">{{ ct(taskAction.action === 'reconcile' ? 'reconcileContinue' : 'retryContinue') }}</label></div>
+          <footer class="dialog-foot"><button class="btn" :disabled="taskAction.loading" @click="taskAction.open = false">{{ t('common.cancel') }}</button><button class="btn btn-primary" :disabled="taskAction.loading" @click="confirmTaskAction">{{ ct(taskAction.loading && taskAction.action === 'reconcile' ? 'reconciling' : taskAction.action) }}</button></footer>
+        </section>
+      </div>
       <ConfirmDialog
         :open="assetDelete.open"
         :title="t('episode.delete.title', { type: assetDeleteTypeLabel })"
@@ -1476,10 +1482,15 @@ import { startTour, autoTour } from '~/composables/useTour'
 import { useAgent } from '~/composables/useAgent'
 import { toastError, mapError, MODERATION_RE } from '~/composables/useToast'
 import LocaleSwitcher from '~/components/LocaleSwitcher.vue'
+import ContinuityEditor from '~/components/ContinuityEditor.vue'
+import ContinuityExport from '~/components/ContinuityExport.vue'
+import { useContinuityText } from '~/composables/useContinuityText'
+import { continuityPlan, continuityRevision, orderedStoryboards, normalizeTask, taskIsActive, taskCanRetry, staleContinuitySource, videoTaskPayload, batchRequestIdentity } from '~/utils/continuity'
 
 definePageMeta({ layout: 'studio' })
 
 const { t } = useI18n()
+const { ct } = useContinuityText()
 
 const route = useRoute()
 const dramaId = Number(route.params.id)
@@ -1635,6 +1646,7 @@ const pendingCharImageIds = ref([])
 const pendingSceneImageIds = ref([])
 const pendingPropImageIds = ref([])
 const pendingVideoIds = ref([])
+const submittingVideoIds = ref([])
 const failedVideoMessages = ref({})
 // 任务列表面板：顶栏按钮触发的右侧抽屉,按集聚合 sys_task + video_merges
 const genTasks = ref([])
@@ -1775,7 +1787,8 @@ async function confirmDeleteAsset() {
     if (assetDetail.value.open && assetDetail.value.type === type && assetDetail.value.item?.id === item.id) closeAssetDetail()
     await refresh()
   } catch (e) {
-    toastError(e)
+    if (e.status === 409) toast.error(ct('cancelBeforeDelete'))
+    else toastError(e)
   } finally {
     assetDelete.value.loading = false
   }
@@ -1975,12 +1988,12 @@ function isPendingSceneImage(id) {
 }
 
 function hasProcessingVideoTask(id) {
-  return genTasks.value.some(task => task.type === 'video' && task.status === 'processing'
+  return genTasks.value.some(task => task.type === 'video' && taskIsActive(task)
     && String(task.storyboard_id) === String(id))
 }
 
 function isPendingVideo(id) {
-  return pendingVideoIds.value.includes(id) || hasProcessingVideoTask(id)
+  return submittingVideoIds.value.includes(id) || pendingVideoIds.value.includes(id) || hasProcessingVideoTask(id)
 }
 
 function videoFailMessage(id) {
@@ -1995,12 +2008,14 @@ function videoModerationHint(msg) {
 
 function videoTaskState(sb) {
   if (isPendingVideo(sb?.id)) return 'pending'
-  if (hasVid(sb)) return 'done'
   if (videoFailMessage(sb?.id)) return 'failed'
+  if (hasVid(sb)) return 'done'
   return 'ready'
 }
 
 function videoTaskStatusLabel(sb) {
+  const latest = latestVideoTask(sb?.id)
+  if (latest && latest.status !== 'completed') return genTaskStatusLabel(latest.status, latest)
   const state = videoTaskState(sb)
   if (state === 'done') return t('episode.status.done')
   if (state === 'pending') return t('episode.status.generating')
@@ -2176,32 +2191,25 @@ const isComfyuiWanVideo = computed(() => isComfyuiVideo.value
   && /wan[._-]?2[._-]?2.*5b/i.test(effectiveVideoModelLabel.value))
 const isComfyuiH3Video = computed(() => isComfyuiVideo.value
   && /minimax[_-]?h3/i.test(effectiveVideoModelLabel.value))
-// 仅本页显式选择后生效，不改变分镜素材绑定，也不自动串行生成。
-const continuityFrames = ref({})
-const motionContextSources = ref({})
-const continuityLoadingIds = ref([])
+const continuitySavingIds = ref([])
+const analyzingContinuity = ref(false)
 const supportsVideoContinuity = computed(() => isComfyuiWanVideo.value || isComfyuiH3Video.value)
-const selectedContinuityFrame = computed(() => continuityFrames.value[selectedSb.value?.id] || null)
-const selectedMotionContext = computed(() => motionContextSources.value[selectedSb.value?.id] || null)
 const previousContinuityShot = computed(() => getPreviousStoryboard(selectedSb.value))
-const canUsePreviousFrame = computed(() => supportsVideoContinuity.value
-  && !!getVideoUrl(previousContinuityShot.value)
-  && !isPendingVideo(previousContinuityShot.value?.id)
-  && !isPendingVideo(selectedSb.value?.id))
-const canUseMotionContext = computed(() => isComfyuiH3Video.value
-  && !!getVideoUrl(previousContinuityShot.value)
-  && !isPendingVideo(previousContinuityShot.value?.id)
-  && !isPendingVideo(selectedSb.value?.id))
+const selectedContinuity = computed(() => continuityPlan(selectedSb.value))
 const videoReferenceHint = computed(() => {
-  if (selectedMotionContext.value && isComfyuiH3Video.value) return 'H3 Motion Context：沿用上一分镜的音视频 latent 动作上下文，同时保留本镜头绑定的角色、场景和道具参考图。'
-  if (selectedMotionContext.value && !isComfyuiH3Video.value) return '当前模型不是 H3，无法使用 Motion Context；请选择 H3 或移除 latent 续接。'
-  if (selectedContinuityFrame.value && isComfyuiWanVideo.value) return 'Wan2.2 5B 接续模式：以上一分镜尾帧作为唯一首帧，沿用画面中的人物与场景；本次不使用单独绑定的设定图。'
-  if (selectedContinuityFrame.value && isComfyuiH3Video.value) return 'H3 接续模式：使用上一分镜尾帧作为首帧，同时保留最多 9 张独立参考图及 @名字 对应。'
-  if (selectedContinuityFrame.value && !supportsVideoContinuity.value) return '当前模型不支持此接续首帧，请切换回 ComfyUI H3 / Wan2.2 5B，或移除首帧后独立生成。'
-  if (isComfyuiWanVideo.value) return 'Wan2.2 5B 仅支持 1 张首帧图；绑定的设定图会成为第一帧，建议使用包含人物与场景的完整镜头画面。多参考图请切换到 H3。'
-  if (isComfyuiH3Video.value) return 'H3 支持最多 9 张独立参考图，角色、场景和道具按提示词中的 @名字 对应。'
+  const mode = selectedContinuity.value.mode
+  if (mode === 'motion_context') return ct(isComfyuiH3Video.value ? 'h3Motion' : 'h3Only')
+  if (mode === 'tail_frame') return ct(isComfyuiWanVideo.value ? 'wanTail' : isComfyuiH3Video.value ? 'h3Tail' : 'unsupported')
+  if (isComfyuiWanVideo.value) return ct('wanRefs')
+  if (isComfyuiH3Video.value) return ct('h3Refs')
   return ''
 })
+const displayedVideoTask = computed(() => {
+  const taskId = selectedSb.value?.video_task_id ?? selectedSb.value?.videoTaskId
+  if (previewVideoUrl.value) return sbVideoHistory.value.find(task => taskVideoPath(task) === previewVideoUrl.value)
+  return genTasks.value.find(task => Number(task.id) === Number(taskId)) || sbVideoHistory.value.find(task => Number(task.id) === Number(taskId))
+})
+const displayedVideoStale = computed(() => staleContinuitySource(displayedVideoTask.value, sbs.value))
 const episodeResolutionLabel = computed(() =>
   resolutionOptions.value.find(o => o.key === episodeResolution.value)?.model || episodeResolution.value)
 // 短档位标签（480p / 768P / 2K 等厂商原生档位），用于底部生效配置小结
@@ -2211,36 +2219,99 @@ const effectiveVideoDuration = computed(() => Number(selectedSb.value?.duration 
 const batchVideoTotalDuration = computed(() =>
   batchVideoConfirm.value.targets.reduce((sum, sb) => sum + (Number(sb.duration) || 5), 0))
 
+const batchPreview = ref(null)
+const batchPreviewLoading = ref(false)
+const batchPreviewError = ref('')
+const batchSubmitting = ref(false)
+const batchCheckedSignature = ref('')
+let batchPreviewSerial = 0
+let requestKeyForBody = batchRequestIdentity()
+const batchTargets = computed(() => orderedStoryboards(batchVideoConfirm.value.targets.map(sb => sbs.value.find(current => current.id === sb.id) || sb)))
+const batchBody = computed(() => ({ episode_id: epId.value, tasks: batchTargets.value.map(buildVideoTask) }))
+const batchSignature = computed(() => JSON.stringify({ body: batchBody.value, revisions: batchTargets.value.map(sb => continuityRevision(sb)) }))
+const batchBlockers = computed(() => [...new Set([...(batchPreview.value?.blockers || []), ...(batchPreview.value?.items || []).flatMap(item => item.blockers || [])])])
+const batchCanSubmit = computed(() => !!batchPreview.value && !batchPreviewLoading.value && !batchSubmitting.value && !batchPreviewError.value && !batchBlockers.value.length && batchCheckedSignature.value === batchSignature.value)
+watch([() => batchVideoConfirm.value.open, batchSignature], ([open]) => {
+  if (open) previewBatchVideos()
+  else { batchPreviewSerial++; batchPreviewLoading.value = false }
+})
 function openBatchVideoConfirm(pool) {
-  const targets = pool.filter(s => !isPendingVideo(s.id))
+  const targets = pool.filter(sb => !isPendingVideo(sb.id))
   if (!targets.length) { toast.info(t('episode.vid.noneToGenerate')); return }
-  if (!validateVideoReferences(targets)) return
+  batchPreview.value = null
+  batchPreviewError.value = ''
   batchVideoConfirm.value = { open: true, targets }
 }
 function batchVideos() {
-  // 选择模式且有勾选 → 仅所选（允许重出已完成镜头）；否则全部未完成（待生成+失败）
   const useSelection = videoSelectMode.value && selectedVideoSbIds.value.length
-  const pool = useSelection
-    ? sbs.value.filter(s => selectedVideoSbIds.value.includes(s.id))
-    : sbs.value.filter(s => !hasVid(s))
-  openBatchVideoConfirm(pool)
+  openBatchVideoConfirm(useSelection ? sbs.value.filter(sb => selectedVideoSbIds.value.includes(sb.id)) : sbs.value.filter(sb => !hasVid(sb)))
 }
-function retryFailedVideos() {
-  openBatchVideoConfirm(sbs.value.filter(s => videoTaskState(s) === 'failed'))
+function retryFailedVideos() { openTaskDrawer() }
+async function previewBatchVideos() {
+  const serial = ++batchPreviewSerial
+  batchPreviewLoading.value = true
+  batchPreviewError.value = ''
+  batchPreview.value = null
+  const body = batchBody.value
+  const signature = batchSignature.value
+  try {
+    const errors = batchTargets.value.map(sb => {
+      const error = videoReferenceError(sb)
+      return error ? ct('shotError', { n: sb.storyboard_number ?? sb.storyboardNumber ?? sb.id, message: error }) : ''
+    }).filter(Boolean)
+    if (errors.length) { batchPreviewError.value = errors.join('\n'); return }
+    const result = await taskAPI.previewBatch(body)
+    if (serial !== batchPreviewSerial) return
+    batchPreview.value = result
+    batchCheckedSignature.value = signature
+  } catch (error) {
+    if (serial === batchPreviewSerial) batchPreviewError.value = error.message || ct('previewFailed')
+  } finally { if (serial === batchPreviewSerial) batchPreviewLoading.value = false }
 }
-function confirmBatchVideos() {
-  const targets = [...batchVideoConfirm.value.targets]
-  if (!targets.length || !validateVideoReferences(targets)) return
-  batchVideoConfirm.value = { open: false, targets: [] }
-  const ids = targets.map(s => s.id)
-  targets.forEach(sb => genVid(sb, { silent: true }))
-  toast.success(t('episode.vid.batchStarted', { n: ids.length }))
-  watchAsyncResult(() => ids.every(id => {
-    const target = sbs.value.find(s => s.id === id)
-    // 重生成期间保留的旧视频不能证明本次任务已完成。
-    return !isPendingVideo(id) && !!getVideoUrl(target)
-  }), 80, 4000)
-  if (videoSelectMode.value) toggleVideoSelectMode()
+function addBatchPrerequisites() {
+  const selected = new Set(batchTargets.value.map(sb => sb.id))
+  const visited = new Set()
+  function addSource(id) {
+    if (visited.has(id)) return
+    visited.add(id)
+    const sb = sbs.value.find(row => Number(row.id) === Number(id))
+    if (!sb || continuityPlan(sb).mode === 'independent') return
+    const source = getPreviousStoryboard(sb)
+    if (!source || selected.has(source.id) || isPendingVideo(source.id)) return
+    selected.add(source.id)
+    if (!hasVid(source)) addSource(source.id)
+  }
+  for (const item of batchPreview.value?.items || []) if (item.blockers?.length) addSource(item.storyboard_id)
+  if (selected.size === batchTargets.value.length) { toast.info(ct('noSources')); return }
+  batchVideoConfirm.value.targets = orderedStoryboards(sbs.value.filter(sb => selected.has(sb.id)))
+}
+function batchItemLabel(item) {
+  const source = sbs.value.find(sb => Number(sb.id) === Number(item.source_storyboard_id))
+  return ct(item.mode === 'independent' ? 'batchIndependent' : item.depends_on_storyboard_id ? 'batchWaiting' : 'batchExisting', {
+    n: item.storyboard_number, source: source?.storyboard_number ?? source?.storyboardNumber ?? item.source_storyboard_id,
+  })
+}
+async function confirmBatchVideos() {
+  if (!batchCanSubmit.value || !validateVideoReferences(batchTargets.value)) return
+  const body = batchBody.value
+  const request_key = requestKeyForBody(body)
+  batchSubmitting.value = true
+  try {
+    const result = await taskAPI.batch({ ...body, request_key })
+    requestKeyForBody = batchRequestIdentity()
+    pendingVideoIds.value = [...new Set([...pendingVideoIds.value, ...batchTargets.value.map(sb => sb.id)])]
+    batchVideoConfirm.value.open = false
+    toast.success(ct('batchQueued', { n: result.task_ids.length }))
+    if (videoSelectMode.value) toggleVideoSelectMode()
+    await refresh()
+    openTaskDrawer()
+  } catch (error) {
+    if (error.status === 409) {
+      await refreshStoryboardMetadata().catch(() => {})
+      toast.error(ct('conflict'))
+    } else toast.error(error.message || ct('previewFailed'))
+    // Keep the current body/key for an idempotent retry after a lost response.
+  } finally { batchSubmitting.value = false }
 }
 
 // 配置变化后校验持久化的模型是否仍存在（配置被删/模型被移除时回退默认，避免把失效模型传给后端）
@@ -2262,11 +2333,16 @@ const videoModelMultiCfg = computed(() => hasMultiConfigs(videoModelOptions.valu
 
 // Production step helpers
 // ========== 任务列表面板 ==========
+let genTasksLoading = false
+let genTasksReloadRequested = false
 async function loadGenTasks() {
   if (!epId.value) return
+  if (genTasksLoading) { genTasksReloadRequested = true; return }
+  genTasksLoading = true
+  const previousTasks = new Map(genTasks.value.map(task => [task.id, task.status]))
   try {
     const data = await taskAPI.listByEpisode(epId.value)
-    genTasks.value = data?.tasks || []
+    genTasks.value = (data?.tasks || []).map(normalizeTask)
     genMerges.value = data?.merges || []
 
     // 生成中/失败状态只存在内存里,页面刷新后丢失;从 sys_task 记录按分镜恢复,
@@ -2288,9 +2364,9 @@ async function loadGenTasks() {
     const failed = {}
     for (const [sbId, task] of latestBySb) {
       // 重生成仍可能保留旧视频；先恢复正在处理的任务，再忽略历史失败。
-      if (task.status === 'processing') pending.add(sbId)
-      else if (!hasVid(sbs.value.find(s => s.id === sbId)) && task.status === 'failed') {
-        failed[sbId] = task.error_msg || t('episode.status.failed')
+      if (taskIsActive(task)) pending.add(sbId)
+      else if (['failed', 'blocked'].includes(task.status)) {
+        failed[sbId] = task.blocked_reason || task.error_msg || ct(task.status)
       }
     }
     // 刚点击提交、任务记录尚未加载出来的本地状态保留,避免状态闪退
@@ -2300,7 +2376,15 @@ async function loadGenTasks() {
     }
     pendingVideoIds.value = [...pending]
     failedVideoMessages.value = failed
-  } catch { /* 静默失败,不打断其他刷新 */ }
+    if (genTasks.value.some(task => task.type === 'video' && previousTasks.has(task.id) && previousTasks.get(task.id) !== task.status && !taskIsActive(task))) {
+      await refreshStoryboardMetadata()
+      await loadSbVideoHistory()
+    }
+  } catch { /* Keep the last known state on transient network failures. */ }
+  finally {
+    genTasksLoading = false
+    if (genTasksReloadRequested) { genTasksReloadRequested = false; loadGenTasks() }
+  }
 }
 
 function stopGenTasksPolling() {
@@ -2308,7 +2392,7 @@ function stopGenTasksPolling() {
 }
 
 const genTaskActiveCount = computed(() =>
-  genTasks.value.filter(t => t.status === 'processing').length +
+  genTasks.value.filter(taskIsActive).length +
   genMerges.value.filter(m => m.status === 'processing' || m.status === 'pending').length
 )
 const genTaskDoneCount = computed(() =>
@@ -2316,7 +2400,7 @@ const genTaskDoneCount = computed(() =>
   genMerges.value.filter(m => m.status === 'completed').length
 )
 const genTaskFailedCount = computed(() =>
-  genTasks.value.filter(t => t.status === 'failed').length +
+  genTasks.value.filter(task => ['failed', 'blocked'].includes(task.status)).length +
   genMerges.value.filter(m => m.status === 'failed').length
 )
 
@@ -2343,6 +2427,7 @@ function genTaskTargetLabel(task) {
 // 统一行结构：image / video / merge 三类合并按时间倒序
 const genTaskRows = computed(() => {
   const taskRows = genTasks.value.map(t => ({
+    ...t,
     key: `task-${t.id}`,
     kind: t.type, // image | video
     id: t.id,
@@ -2351,6 +2436,7 @@ const genTaskRows = computed(() => {
     model: t.model || '',
     status: t.status || 'processing',
     errorMsg: t.error_msg || '',
+    stale: staleContinuitySource(t, sbs.value),
     previewUrl: t.local_path || t.result_url || '',
     prompt: t.prompt || '',
     createdAt: t.created_at || '',
@@ -2377,23 +2463,50 @@ function genTaskKindLabel(kind) {
   return kind === 'image' ? t('common.serviceType.image') : kind === 'video' ? t('common.serviceType.video') : t('episode.tasks.mergeKind')
 }
 
-function genTaskStatusLabel(status) {
+function latestVideoTask(id) {
+  return genTasks.value.filter(task => task.type === 'video' && Number(task.storyboard_id) === Number(id)).sort((a, b) => Number(b.id) - Number(a.id))[0]
+}
+function genTaskStatusLabel(status, task = {}) {
+  if (task.phase === 'submission_unknown') return ct('submission_unknown')
+  if (status === 'queued') return ct(task.depends_on_task_id ? 'waitingSource' : 'queued')
+  if (['blocked', 'cancelled', 'downloading'].includes(status)) return ct(status)
   if (status === 'completed') return t('episode.status.done')
   if (status === 'failed') return t('episode.status.failed')
+  if (['preparing', 'submitting', 'polling'].includes(task.phase)) return ct(task.phase)
   return t('episode.status.generating')
 }
-
-// 映射到现有 video-task-status 的样式类:is-done / is-pending / is-failed
 function genTaskStateClass(status) {
   if (status === 'completed') return 'done'
-  if (status === 'failed') return 'failed'
+  if (['failed', 'blocked', 'cancelled'].includes(status)) return 'failed'
   return 'pending'
+}
+const taskAction = ref({ open: false, id: 0, action: 'retry', loading: false, continueDependents: true })
+function askTaskAction(task, action) {
+  taskAction.value = { open: true, id: task.id, action, loading: false, continueDependents: action === 'retry' }
+}
+async function confirmTaskAction() {
+  if (taskAction.value.loading) return
+  taskAction.value.loading = true
+  try {
+    if (taskAction.value.action === 'reconcile') {
+      const result = await taskAPI.reconcile(taskAction.value.id, taskAction.value.continueDependents)
+      if (result.reconciled === true) toast.success(ct('reconcileDone'))
+      else toast.info(ct('reconcileUnconfirmed'))
+    } else {
+      if (taskAction.value.action === 'cancel') await taskAPI.cancel(taskAction.value.id)
+      else await taskAPI.retry(taskAction.value.id, taskAction.value.continueDependents)
+      toast.success(ct(taskAction.value.action === 'cancel' ? 'cancelledDone' : 'retryDone'))
+    }
+    taskAction.value.open = false
+    await refresh()
+  } catch (error) { toast.error(error.message || t('errors.unknown')) }
+  finally { taskAction.value.loading = false }
 }
 
 // local_path 为站内相对路径补 '/',远端 result_url 原样使用
 function genTaskPreviewSrc(url) {
   if (!url) return ''
-  return /^https?:\/\//.test(url) ? url : '/' + url
+  return /^(https?:|blob:|data:|\/)/i.test(url) ? url : '/' + url
 }
 
 function genTaskDuration(row) {
@@ -2403,12 +2516,10 @@ function genTaskDuration(row) {
   return ms >= 60000 ? `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s` : `${Math.round(ms / 1000)}s`
 }
 
-// 抽屉打开且有进行中任务时,4s 轮询;关闭或全部结束时停止
+// Queue state survives closing the drawer and refreshing the page.
 watch([taskDrawer, genTaskActiveCount], ([open, active]) => {
   stopGenTasksPolling()
-  if (open && active > 0) {
-    genTasksTimer = setInterval(loadGenTasks, 4000)
-  }
+  if (active > 0) genTasksTimer = setInterval(loadGenTasks, 4000)
 })
 
 const productionBlockMessage = computed(() => {
@@ -2687,7 +2798,7 @@ async function refresh() {
       try { chars.value = await episodeAPI.characters(ep.id) } catch { chars.value = [] }
       try { scenes.value = await episodeAPI.scenes(ep.id) } catch { scenes.value = [] }
       try { propItems.value = await episodeAPI.props(ep.id) } catch { propItems.value = [] }
-      sbs.value = await episodeAPI.storyboards(ep.id)
+      sbs.value = orderedStoryboards(await episodeAPI.storyboards(ep.id) || [])
       selectedVideoSbIds.value = selectedVideoSbIds.value.filter(id => sbs.value.some(sb => sb.id === id))
       if (sbs.value.length) {
         const currentSelectedId = selectedSb.value?.id
@@ -3062,18 +3173,21 @@ function taskVideoPath(t) { return t?.local_path || t?.localPath || t?.result_ur
 function taskCreatedAt(t) { return t?.created_at || t?.createdAt || '' }
 function isCurrentVideo(t) { const p = taskVideoPath(t); return !!p && p === getVideoUrl(selectedSb.value) }
 
-async function loadSbVideoHistory() {
-  previewVideoUrl.value = ''
-  if (!selectedSb.value?.id) { sbVideoHistory.value = []; return }
+async function loadSbVideoHistory(resetPreview = false) {
+  const storyboardId = selectedSb.value?.id
+  if (resetPreview) previewVideoUrl.value = ''
+  if (!storyboardId) { sbVideoHistory.value = []; return }
   try {
-    const rows = await taskAPI.list({ type: 'video', storyboard_id: selectedSb.value.id })
-    sbVideoHistory.value = (Array.isArray(rows) ? rows : [])
-      .filter(t => t.status === 'completed' && taskVideoPath(t))
+    const rows = await taskAPI.list({ type: 'video', storyboard_id: storyboardId })
+    if (selectedSb.value?.id !== storyboardId) return
+    sbVideoHistory.value = (Array.isArray(rows) ? rows : rows?.items || []).map(normalizeTask)
+      .filter(task => task.status === 'completed' && taskVideoPath(task))
       .sort((a, b) => taskCreatedAt(b).localeCompare(taskCreatedAt(a)))
-  } catch { sbVideoHistory.value = [] }
+    if (previewVideoUrl.value && !sbVideoHistory.value.some(task => taskVideoPath(task) === previewVideoUrl.value)) previewVideoUrl.value = ''
+  } catch { /* Keep playable history during transient failures. */ }
 }
 
-watch(() => [selectedSb.value?.id, getVideoUrl(selectedSb.value)], () => { loadSbVideoHistory() })
+watch([() => selectedSb.value?.id, () => getVideoUrl(selectedSb.value)], ([id], [previousId]) => { loadSbVideoHistory(id !== previousId) })
 
 function previewHistoryVideo(t) {
   previewVideoUrl.value = isCurrentVideo(t) ? '' : taskVideoPath(t)
@@ -3083,11 +3197,14 @@ async function setAsMainVideo() {
   const sb = selectedSb.value
   if (!sb || !previewVideoUrl.value) return
   try {
-    await storyboardAPI.update(sb.id, { video_url: previewVideoUrl.value })
-    sb.video_url = previewVideoUrl.value
-    sb.videoUrl = previewVideoUrl.value
+    const sourceTask = sbVideoHistory.value.find(task => taskVideoPath(task) === previewVideoUrl.value)
+    await storyboardAPI.update(sb.id, { video_url: previewVideoUrl.value, video_task_id: sourceTask?.id })
+    await refreshStoryboardMetadata()
     toast.success(t('episode.vid.setMainDone'))
-  } catch (e) { toastError(e, { fallback: 'episode.vid.setMainFailed' }) }
+  } catch (e) {
+    if (e.status === 409) { toast.error(ct('cancelBeforeChange')); await refreshStoryboardMetadata() }
+    else toastError(e, { fallback: 'episode.vid.setMainFailed' })
+  }
 }
 
 async function removeHistoryVideo(t) {
@@ -3096,7 +3213,10 @@ async function removeHistoryVideo(t) {
     sbVideoHistory.value = sbVideoHistory.value.filter(x => x.id !== t.id)
     if (previewVideoUrl.value === taskVideoPath(t)) previewVideoUrl.value = ''
     toast.success(t('episode.vid.historyDeleted'))
-  } catch (e) { toastError(e, { fallback: 'common.deleteFailed' }) }
+  } catch (e) {
+    if (e.status === 409) toast.error(ct('cancelBeforeDelete'))
+    else toastError(e, { fallback: 'common.deleteFailed' })
+  }
 }
 
 function formatHistoryTime(iso) {
@@ -3118,96 +3238,49 @@ function getPreviousStoryboard(sb) {
     .sort((a, b) => Number(b.storyboard_number ?? b.storyboardNumber) - Number(a.storyboard_number ?? a.storyboardNumber))[0] || null
 }
 
-function continuityFrameError(sb) {
-  if (continuityLoadingIds.value.includes(sb.id)) return '接续首帧正在提取，请完成后再生成。'
-  const frame = continuityFrames.value[sb.id]
-  if (!frame) return ''
-  if (!supportsVideoContinuity.value) return '当前模型不支持接续首帧，请切换到 ComfyUI H3 / Wan2.2 5B，或移除首帧。'
-  const previous = getPreviousStoryboard(sb)
-  if (!previous || String(previous.id) !== String(frame.sourceStoryboardId)
-    || !getVideoUrl(previous) || isPendingVideo(previous.id)
-    || getVideoUrl(previous) !== frame.sourceVideoUrl) {
-    return '上一分镜的视频或顺序已变化，请在上一分镜完成后重新选择接续尾帧，或移除首帧。'
-  }
-  return ''
+async function refreshStoryboardMetadata() {
+  const rows = await episodeAPI.storyboards(epId.value)
+  sbs.value = orderedStoryboards(Array.isArray(rows) ? rows : rows?.items || [])
+  if (selectedSb.value) selectedSb.value = sbs.value.find(sb => sb.id === selectedSb.value.id) || sbs.value[0] || null
 }
-
-async function usePreviousVideoFrame(sb) {
-  if (!sb || continuityLoadingIds.value.includes(sb.id)) return
-  const previous = getPreviousStoryboard(sb)
-  if (!supportsVideoContinuity.value || !previous || !getVideoUrl(previous)
-    || isPendingVideo(previous.id) || isPendingVideo(sb.id)) {
-    toast.error('接续需要选择 ComfyUI H3 / Wan2.2 5B，并先完成上一分镜的视频生成。')
-    return
-  }
-  const sourceVideoUrl = getVideoUrl(previous)
-  continuityLoadingIds.value.push(sb.id)
+async function saveContinuityMetadata(sb, patch) {
+  if (!sb || continuitySavingIds.value.includes(sb.id)) return
+  continuitySavingIds.value.push(sb.id)
   try {
-    const result = await api.post(`/storyboards/${sb.id}/continuity-frame`)
-    const currentPrevious = getPreviousStoryboard(sb)
-    if (typeof result?.first_frame_url !== 'string' || !result.first_frame_url.trim()
-      || String(result.source_storyboard_id) !== String(previous.id)
-      || result.source_video_url !== sourceVideoUrl
-      || !currentPrevious || String(currentPrevious.id) !== String(previous.id)
-      || getVideoUrl(currentPrevious) !== sourceVideoUrl || isPendingVideo(currentPrevious.id)) {
-      throw new Error('上一分镜已变化或未返回有效尾帧，请重新提取。')
-    }
-    continuityFrames.value = { ...continuityFrames.value, [sb.id]: {
-      firstFrameUrl: result.first_frame_url.trim(),
-      sourceStoryboardId: result.source_storyboard_id,
-      sourceStoryboardNumber: result.source_storyboard_number,
-      sourceVideoUrl: result.source_video_url,
-    } }
-  } catch (e) {
-    toastError(e)
-  } finally {
-    continuityLoadingIds.value = continuityLoadingIds.value.filter(id => id !== sb.id)
-  }
+    await storyboardAPI.update(sb.id, { ...patch, continuity_revision: continuityRevision(sb) })
+    await refreshStoryboardMetadata()
+    toast.success(ct(patch.transition_config ? 'transitionSaved' : 'saved'))
+  } catch (error) {
+    if (error.status === 409) {
+      await refreshStoryboardMetadata().catch(() => {})
+      toast.error(ct('conflict'))
+    } else toast.error(error.message || ct('saveFailed'))
+  } finally { continuitySavingIds.value = continuitySavingIds.value.filter(id => id !== sb.id) }
 }
-
-function motionContextError(sb) {
-  const context = motionContextSources.value[sb?.id]
-  if (!context) return ''
-  if (!isComfyuiH3Video.value) return '当前模型不是 ComfyUI H3，无法使用 H3 Motion Context，请切换模型或移除 latent 续接。'
+function saveContinuity(sb, plan) { return saveContinuityMetadata(sb, { continuity_plan: plan }) }
+function saveTransition(sb, transition) { return saveContinuityMetadata(sb, { transition_config: transition }) }
+async function analyzeContinuity() {
+  if (analyzingContinuity.value || !epId.value) return
+  analyzingContinuity.value = true
+  const loadingToast = toast.loading(ct('analyzing'))
+  try {
+    await episodeAPI.analyzeContinuity(epId.value, chatModelOverride(), chatConfigId(), effectiveVideoModelLabel.value, selectedVideoConfig.value?.id)
+    await refreshStoryboardMetadata()
+    toast.success(ct('analyzed'))
+  } catch (error) {
+    if (error.status === 409) { await refreshStoryboardMetadata().catch(() => {}); toast.error(ct('conflict')) }
+    else toastError(error)
+  } finally { toast.dismiss(loadingToast); analyzingContinuity.value = false }
+}
+function continuityError(sb) {
+  if (continuitySavingIds.value.includes(sb.id)) return ct('saving')
+  const plan = continuityPlan(sb)
+  if (plan.mode === 'independent') return ''
   const previous = getPreviousStoryboard(sb)
-  if (!previous || String(previous.id) !== String(context.sourceStoryboardId)
-    || !getVideoUrl(previous) || isPendingVideo(previous.id)
-    || getVideoUrl(previous) !== context.sourceVideoUrl) {
-    return 'Motion Context 的来源镜头已变化，请重新选择上一镜头，或移除 latent 续接。'
-  }
+  if (!previous || Number(previous.id) !== Number(plan.source_storyboard_id)) return ct('sourceChanged')
+  if (plan.mode === 'motion_context' && !isComfyuiH3Video.value) return ct('h3Only')
+  if (!supportsVideoContinuity.value) return ct('unsupported')
   return ''
-}
-
-function usePreviousMotionContext(sb) {
-  if (!sb || !canUseMotionContext.value) {
-    toast.error('H3 Motion Context 需要先完成上一分镜，并使用 ComfyUI MiniMax H3。')
-    return
-  }
-  const previous = getPreviousStoryboard(sb)
-  if (!previous || !getVideoUrl(previous)) return
-  const nextFrames = { ...continuityFrames.value }
-  delete nextFrames[sb.id]
-  continuityFrames.value = nextFrames
-  motionContextSources.value = {
-    ...motionContextSources.value,
-    [sb.id]: {
-      sourceStoryboardId: previous.id,
-      sourceStoryboardNumber: previous.storyboard_number ?? previous.storyboardNumber,
-      sourceVideoUrl: getVideoUrl(previous),
-    },
-  }
-}
-
-function clearMotionContext(sb) {
-  const next = { ...motionContextSources.value }
-  delete next[sb.id]
-  motionContextSources.value = next
-}
-
-function clearContinuityFrame(sb) {
-  const next = { ...continuityFrames.value }
-  delete next[sb.id]
-  continuityFrames.value = next
 }
 
 function getShotReferenceImages(sb) {
@@ -3230,48 +3303,40 @@ function getShotReferenceImages(sb) {
   return refs
 }
 
+function videoReferenceError(sb) {
+  const invalidContinuity = continuityError(sb)
+  if (invalidContinuity) return invalidContinuity
+  const plan = continuityPlan(sb)
+  if (isComfyuiVideo.value && !(isComfyuiWanVideo.value && plan.mode === 'tail_frame')) {
+    const unavailable = [
+      ...getStoryboardCharacterIds(sb).filter(id => !chars.value.some(char => char.id === id)).map(id => t('common.role') + ' #' + id),
+      ...getStoryboardPropIds(sb).filter(id => !propItems.value.some(prop => prop.id === id)).map(id => t('common.prop') + ' #' + id),
+    ]
+    const sceneId = sb.scene_id || sb.sceneId
+    if (sceneId && !getStoryboardScene(sb)) unavailable.push(t('common.scene') + ' #' + sceneId)
+    const refs = getShotReferenceImages(sb)
+    if (unavailable.length) return ct('refsDeleted', { names: unavailable.join(', ') })
+    if (isComfyuiWanVideo.value && refs.length > 1) return ct('wanLimit', { n: refs.length })
+    if (isComfyuiH3Video.value && refs.length > 9) return ct('h3Limit', { n: refs.length })
+    const missing = shotBindableAssets(sb).filter(asset => asset.bound && (typeof asset.imageUrl !== 'string' || !asset.imageUrl.trim()))
+    if (missing.length) return ct('refsMissing', { names: missing.map(asset => asset.name).join(', ') })
+  }
+  if (!resolveVideoPromptRefs(sb) && !getShotReferenceImages(sb).length && plan.mode === 'independent') return t('episode.vid.needRefOrPrompt')
+  return ''
+}
 function validateVideoReferences(targets) {
   for (const sb of targets) {
-    const frame = continuityFrames.value[sb.id]
-    const motionContext = motionContextSources.value[sb.id]
-    let error = motionContextError(sb) || continuityFrameError(sb)
-    if (!error && frame && motionContext) {
-      error = '尾帧接续和 H3 Motion Context 只能选择一种，请移除其中一种后再生成。'
-    }
-    if (!error && motionContext && targets.some(target => String(target.id) === String(motionContext.sourceStoryboardId))) {
-      error = '批量任务包含 Motion Context 的来源分镜，请先完成上一分镜，再生成接续镜头。'
-    }
-    if (!error && frame && targets.some(target => String(target.id) === String(frame.sourceStoryboardId))) {
-      error = '批量任务包含接续首帧的来源分镜，请先完成上一分镜，再重新选择尾帧生成接续镜头。'
-    }
-    // Wan 显式接续时只使用尾帧中的完整画面，保留绑定关系供其他模式使用。
-    if (!error && isComfyuiVideo.value && !(isComfyuiWanVideo.value && frame)) {
-      // 使用包含旁白的完整角色列表校验绑定；旁白无需参与后续画面参考图检查。
-      const unavailable = [
-        ...getStoryboardCharacterIds(sb).filter(id => !chars.value.some(char => char.id === id)).map(id => `角色 #${id}`),
-        ...getStoryboardPropIds(sb).filter(id => !propItems.value.some(prop => prop.id === id)).map(id => `道具 #${id}`),
-      ]
-      const sceneId = sb.scene_id || sb.sceneId
-      if (sceneId && !getStoryboardScene(sb)) unavailable.push(`场景 #${sceneId}`)
-      const refs = getShotReferenceImages(sb)
-      if (unavailable.length) {
-        error = `绑定素材「${unavailable.join('、')}」已删除或未加载，请刷新素材并检查分镜绑定后再生成。`
-      } else if (isComfyuiWanVideo.value && refs.length > 1) {
-        error = `Wan2.2 5B 只支持 1 张首帧图，当前绑定了 ${refs.length} 张参考图。请只保留一张包含完整镜头画面的图片，或切换到支持多参考图的 H3。`
-      } else if (isComfyuiH3Video.value && refs.length > 9) {
-        error = `H3 最多支持 9 张独立参考图，当前绑定了 ${refs.length} 张。请减少绑定图片后再生成。`
-      } else {
-        const missing = shotBindableAssets(sb).filter(asset => asset.bound
-          && (typeof asset.imageUrl !== 'string' || !asset.imageUrl.trim()))
-        if (missing.length) error = `绑定素材「${missing.map(asset => asset.name).join('、')}」尚无可用图片，请先生成或上传图片，或解除绑定后再生成。`
-      }
-    }
-    if (error) {
-      toast.error(`分镜 ${sb.storyboard_number ?? sb.storyboardNumber ?? sb.id}：${error}`)
-      return false
-    }
+    const error = videoReferenceError(sb)
+    if (error) { toast.error(ct('shotError', { n: sb.storyboard_number ?? sb.storyboardNumber ?? sb.id, message: error })); return false }
   }
   return true
+}
+function buildVideoTask(sb) {
+  return videoTaskPayload({
+    storyboard: sb, dramaId, prompt: resolveVideoPromptRefs(sb), references: getShotReferenceImages(sb),
+    model: bareModelName(videoModel.value), configId: ownerConfigId(videoModelOptions.value, videoModel.value),
+    aspectRatio: dramaAspectRatio.value, wan: isComfyuiWanVideo.value,
+  })
 }
 
 // 右侧参考素材面板：本集全部可绑定素材（场景单选、角色/道具多选），bound 标记是否已绑定
@@ -3475,119 +3540,59 @@ function uploadAssetImage(kind, id) {
   })
 }
 
-async function genVid(sb, opts = {}) {
-  if (!validateVideoReferences([sb])) return
-  const referenceImages = getShotReferenceImages(sb)
-  const motionContext = motionContextSources.value[sb.id]
-  const firstFrameUrl = motionContext ? undefined : (continuityFrames.value[sb.id]?.firstFrameUrl
-    || (isComfyuiWanVideo.value ? referenceImages[0] : undefined))
-  // 主体参考图来自分镜素材；接续首帧和 Motion Context 都只来自用户显式选择。
-  const params = {
-    storyboard_id: sb.id,
-    drama_id: dramaId,
-    prompt: resolveVideoPromptRefs(sb),
-    duration: Number(sb.duration || 10),
-    aspect_ratio: dramaAspectRatio.value,
-    generate_audio: true,
-    model: bareModelName(videoModel.value) || undefined,
-    config_id: ownerConfigId(videoModelOptions.value, videoModel.value),
-    reference_image_urls: isComfyuiWanVideo.value ? [] : referenceImages,
-    ...(motionContext ? {
-      continuity_mode: 'motion_context',
-      continuity_source_storyboard_id: motionContext.sourceStoryboardId,
-    } : {}),
-    ...(firstFrameUrl ? { first_frame_url: firstFrameUrl } : {}),
-  }
-  if (!params.prompt && !referenceImages.length && !firstFrameUrl) {
-    toast.error(t('episode.vid.needRefOrPrompt'))
-    return
-  }
-  const sourceVideoUrl = getVideoUrl(sb)
+async function genVid(sb) {
+  if (isPendingVideo(sb.id) || !validateVideoReferences([sb])) return
+  submittingVideoIds.value.push(sb.id)
   try {
     delete failedVideoMessages.value[sb.id]
-    if (!isPendingVideo(sb.id)) pendingVideoIds.value.push(sb.id)
-    const generation = await taskAPI.generate({ type: 'video', ...params })
-    if (!opts.silent) toast.success(t('episode.vid.generating'))
+    pendingVideoIds.value.push(sb.id)
+    await taskAPI.generate(buildVideoTask(sb))
+    toast.success(t('episode.vid.generating'))
     await refresh()
-    pollVideoGeneration(generation?.id, sb.id, sourceVideoUrl)
-  } catch (e) {
+  } catch (error) {
     pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== sb.id)
-    failedVideoMessages.value = {
-      ...failedVideoMessages.value,
-      [sb.id]: e.message || t('episode.vid.genFailed'),
-    }
-    toastError(e, { fallback: 'episode.vid.genFailed' })
-  }
+    failedVideoMessages.value = { ...failedVideoMessages.value, [sb.id]: error.message || t('episode.vid.genFailed') }
+    if (error.status === 409) { await refreshStoryboardMetadata().catch(() => {}); toast.error(ct('conflict')) }
+    else toastError(error, { fallback: 'episode.vid.genFailed' })
+    await loadGenTasks()
+  } finally { submittingVideoIds.value = submittingVideoIds.value.filter(id => id !== sb.id) }
 }
-async function pollVideoGeneration(generationId, storyboardId, sourceVideoUrl = '') {
-  if (!generationId) {
-    watchAsyncResult(() => {
-      const target = sbs.value.find(s => s.id === storyboardId)
-      const currentVideoUrl = getVideoUrl(target)
-      const done = !!currentVideoUrl
-        && (!sourceVideoUrl || currentVideoUrl !== sourceVideoUrl)
-        && !hasProcessingVideoTask(storyboardId)
-      if (done) pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
-      return done
-    }, 60, 4000)
-    return
-  }
-  for (let i = 0; i < 120; i++) {
-    await sleep(4000)
-    try {
-      const res = await taskAPI.get(generationId)
-      await refresh()
-      if (res?.status === 'completed') {
-        pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
-        delete failedVideoMessages.value[storyboardId]
-        toast.success(t('episode.vid.genDone'))
-        return
-      }
-      if (res?.status === 'failed') {
-        pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
-        const errMsg = res?.error_msg || res?.errorMsg || t('episode.vid.genFailed')
-        failedVideoMessages.value = {
-          ...failedVideoMessages.value,
-          [storyboardId]: errMsg,
-        }
-        toastError(errMsg, { fallback: 'episode.vid.genFailed' })
-        return
-      }
-    } catch {}
-  }
-  pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
-  failedVideoMessages.value = {
-    ...failedVideoMessages.value,
-    [storyboardId]: t('episode.vid.genTimeout'),
-  }
-  toast.error(t('episode.vid.genTimeout'))
+
+const exportPreviewOpen = ref(false)
+const exportPreviewIds = ref([])
+const exportSubmitting = ref(false)
+let mergePollTimer = null
+function openExportPreview(ids) {
+  if (!ids?.length) { toast.error(t('episode.export.selectFirst')); return }
+  exportPreviewIds.value = [...ids]
+  exportPreviewOpen.value = true
 }
-async function doMerge(ids) {
-  const storyboardIds = Array.isArray(ids) ? ids : undefined
-  if (storyboardIds && !storyboardIds.length) {
-    toast.error(t('episode.export.selectFirst'))
-    return
-  }
+async function doMerge(body) {
+  if (exportSubmitting.value) return
+  exportSubmitting.value = true
   try {
-    await mergeAPI.merge(epId.value, storyboardIds)
+    await mergeAPI.merge(epId.value, body)
+    exportPreviewOpen.value = false
     toast.success(t('episode.export.mergingToast'))
-  } catch (e) {
-    toastError(e, { fallback: 'episode.export.mergeFailed' })
+    await loadExportMerges()
+  } catch (error) {
+    toast.error(error.message || t('episode.export.mergeFailed'))
     return
-  }
-  const poll = setInterval(async () => {
-    try { mergeData.value = await mergeAPI.status(epId.value) } catch {}
-    if (mergeData.value?.status === 'completed' || mergeData.value?.status === 'failed') {
-      clearInterval(poll)
-      if (mergeData.value.status === 'completed') {
-        toast.success(t('episode.export.mergeDone'))
-        loadExportMerges()
-      } else {
-        toastError(mergeData.value?.error_msg || mergeData.value?.errorMsg, { fallback: 'episode.export.mergeFailed' })
-      }
+  } finally { exportSubmitting.value = false }
+  if (mergePollTimer) clearInterval(mergePollTimer)
+  mergePollTimer = setInterval(async () => {
+    try { mergeData.value = await mergeAPI.status(epId.value) } catch { return }
+    if (['completed', 'failed'].includes(mergeData.value?.status)) {
+      clearInterval(mergePollTimer)
+      mergePollTimer = null
+      await loadExportMerges()
+      if (mergeData.value.status === 'completed') toast.success(t('episode.export.mergeDone'))
+      else toastError(mergeData.value?.error_msg || mergeData.value?.errorMsg, { fallback: 'episode.export.mergeFailed' })
     }
   }, 3000)
 }
+onBeforeUnmount(() => { if (mergePollTimer) clearInterval(mergePollTimer) })
+
 async function loadConfigs() {
   try {
     const [imgCfgs, vidCfgs, txtCfgs] = await Promise.all([
@@ -5167,8 +5172,12 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   font-weight: 600;
 }
 /* 批量生成确认弹窗 */
-.batch-video-dialog { width: 420px; max-width: calc(100vw - 48px); }
-.batch-video-body { display: flex; flex-direction: column; gap: 10px; }
+.batch-video-dialog { width: 520px; max-width: calc(100vw - 48px); }
+.batch-video-body { display: flex; flex-direction: column; gap: 10px; max-height: 65vh; overflow-y: auto; }
+.continuity-notice { margin: 8px 0; color: var(--warning, #c18b32); font-size: 11px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.continuity-task-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.continuity-retry-option { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.7; }
+.batch-dependencies { padding-left: 18px; font-size: 11px; color: var(--text-2); line-height: 1.8; }
 .batch-video-row {
   display: flex;
   justify-content: space-between;
@@ -6162,6 +6171,9 @@ button.video-task-metric.on { box-shadow: 0 0 0 2px var(--accent); }
   justify-content: center;
   line-height: 1;
 }
+
+/* 任务操作确认须显示在任务抽屉上方。 */
+.task-action-overlay { z-index: 120; }
 
 /* 右侧抽屉 */
 .task-drawer-overlay {

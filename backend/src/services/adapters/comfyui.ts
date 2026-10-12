@@ -6,12 +6,17 @@
  * kept in ComfyUI's user/default/toonflow_api directory and selected by the
  * configured model name.
  */
-import { randomInt } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { injectComfyUIVideoReferences } from './comfyui-reference.js'
+import {
+  assertComfyUIArtifactUuid, assertComfyUIContextArtifact, assertComfyUIVideoCompatibility,
+  COMFYUI_CONTEXT_FORMAT, verifyComfyUIContext,
+} from '../comfyui-artifacts.js'
 import type {
   AIConfig,
+  ComfyUIVideoCompatibility,
   ImageGenResponse,
   ImageGenerationRecord,
   ImagePollResponse,
@@ -263,6 +268,113 @@ function injectVideoSeed(workflow: Record<string, any>, seed: number): void {
   }
 }
 
+function canonicalJson(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  return JSON.stringify(value)
+}
+function workflowHash(workflow: Record<string, any>): string {
+  return createHash('sha256').update(canonicalJson(workflow)).digest('hex')
+}
+function cloneVideoWorkflow(value: unknown): Record<string, any> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid ComfyUI video workflow snapshot')
+  const graph = JSON.parse(JSON.stringify(value)) as Record<string, any>
+  if (!Object.keys(graph).length || Object.values(graph).some(node => !node || typeof node !== 'object'
+    || typeof node.class_type !== 'string' || !node.class_type || !node.inputs || typeof node.inputs !== 'object' || Array.isArray(node.inputs))) {
+    throw new Error('Invalid ComfyUI video workflow snapshot node')
+  }
+  return graph
+}
+function assertVideoIdentity(record: VideoGenerationRecord): void {
+  assertComfyUIArtifactUuid(record.artifactUuid)
+  if (typeof record.requestKey !== 'string' || !record.requestKey.trim() || record.requestKey.length > 256 || /[\x00-\x1f\x7f]/.test(record.requestKey)) {
+    throw new Error('ComfyUI requestKey 必须为非空任务关联标识')
+  }
+}
+function fixedVideoSeed(record: VideoGenerationRecord): number {
+  if (record.seed == null || record.seed === -1) throw new Error('冻结 ComfyUI workflow 前必须先解析并保存固定 seed')
+  return resolveComfyUIVideoSeed(record.seed)
+}
+function roundLikePython(value: number): number {
+  const lower = Math.floor(value)
+  return value - lower === 0.5 ? lower + (lower % 2) : Math.round(value)
+}
+function workflowNumber(workflow: Record<string, any>, value: unknown, label: string, visiting = new Set<string>()): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (Array.isArray(value) && value.length === 2 && Number.isInteger(value[1])) {
+    const id = String(value[0])
+    if (visiting.has(id)) throw new Error(`ComfyUI ${label} 连接存在循环`)
+    const node = workflow[id]
+    const next = new Set(visiting).add(id)
+    if (['PrimitiveInt', 'PrimitiveFloat'].includes(node?.class_type) && value[1] === 0) {
+      return workflowNumber(workflow, node.inputs.value, label, next)
+    }
+    if (node?.class_type === 'ResolutionSelector' && [0, 1].includes(value[1])) {
+      const ratio = String(node.inputs.aspect_ratio).match(/^(\d+):(\d+)(?:\s|$)/)
+      const megapixels = workflowNumber(workflow, node.inputs.megapixels, label, next)
+      const multiple = workflowNumber(workflow, node.inputs.multiple, label, next)
+      if (!ratio || megapixels <= 0 || multiple <= 0 || Number(ratio[1]) <= 0 || Number(ratio[2]) <= 0) throw new Error('ComfyUI ResolutionSelector 配置无效')
+      // Installed ResolutionSelector uses 1024² pixels/MP and Python round.
+      const scale = Math.sqrt(megapixels * 1024 * 1024 / (Number(ratio[1]) * Number(ratio[2])))
+      return roundLikePython(Number(ratio[value[1] + 1]) * scale / multiple) * multiple
+    }
+  }
+  throw new Error(`无法从冻结 ComfyUI workflow 确定实际 ${label}`)
+}
+
+function videoCompatibility(workflow: Record<string, any>, model: string): ComfyUIVideoCompatibility {
+  const roots = Object.values(workflow).filter(node => ['MiniMaxH3ReferenceToVideo', 'Wan22ImageToVideoLatent', 'EmptyMiniMaxH3LatentAV'].includes(node.class_type))
+  const videos = Object.values(workflow).filter(node => node.class_type === 'CreateVideo')
+  if (roots.length !== 1 || videos.length !== 1) throw new Error('冻结 ComfyUI workflow 需要唯一的视频 latent 和 CreateVideo 节点以确定兼容性')
+  const root = roots[0]
+  const width = workflowNumber(workflow, root.inputs.width, 'width')
+  const height = workflowNumber(workflow, root.inputs.height, 'height')
+  const fps = workflowNumber(workflow, videos[0].inputs.fps, 'fps')
+  if (![width, height].every(n => Number.isSafeInteger(n) && n > 0) || fps <= 0) throw new Error('ComfyUI workflow 分辨率或 fps 无效')
+  const h3 = root.class_type !== 'Wan22ImageToVideoLatent'
+  if (h3 && (width % 32 !== 0 || height % 32 !== 0 || fps !== 24)) throw new Error('H3 workflow 需要 32 的倍数分辨率和原生 24 fps')
+  const modelConfig: ComfyUIVideoCompatibility['modelConfig'] = {}
+  const collect = (id: string): void => {
+    if (Object.hasOwn(modelConfig, id)) return
+    const node = workflow[id]
+    if (!node) throw new Error(`ComfyUI 模型配置连接不存在：${id}`)
+    modelConfig[id] = { class_type: node.class_type, inputs: structuredClone(node.inputs) }
+    for (const input of Object.values(node.inputs)) {
+      if (Array.isArray(input) && input.length === 2 && typeof input[0] === 'string' && Number.isInteger(input[1])) collect(input[0])
+    }
+  }
+  for (const [id, node] of Object.entries(workflow)) {
+    if (/Loader|LoRA|Lora|ModelSampling|SigmaShift|Model.*Patch|TurboSampler/.test(node.class_type)) collect(id)
+    for (const key of ['model', 'vae', 'audio_vae', 'clip']) {
+      if (Array.isArray(node.inputs[key])) collect(String(node.inputs[key][0]))
+    }
+  }
+  if (!Object.keys(modelConfig).length) throw new Error('ComfyUI workflow 缺少可签名的实际 model/VAE 配置')
+  return {
+    version: 1, model, width, height, fps,
+    latentFormat: h3 ? COMFYUI_CONTEXT_FORMAT : null,
+    modelSignature: createHash('sha256').update(canonicalJson(modelConfig)).digest('hex'), modelConfig,
+  }
+}
+
+/** Freeze before enqueue. Dynamic uploads and continuity nodes are added only to clones. */
+export function freezeComfyUIVideoWorkflow(config: AIConfig, record: VideoGenerationRecord): {
+  workflow: Record<string, any>
+  hash: string
+  compatibility: ComfyUIVideoCompatibility
+} {
+  assertVideoIdentity(record)
+  const seed = fixedVideoSeed(record)
+  const workflow = cloneVideoWorkflow(record.workflowSnapshot ?? loadWorkflow(
+    record.model || config.model, COMFYUI_VIDEO_WORKFLOW, process.env.COMFYUI_VIDEO_WORKFLOW,
+  ))
+  injectPrompt(workflow, record.prompt)
+  injectVideoDuration(workflow, record.duration)
+  injectVideoSeed(workflow, seed)
+  const compatibility = videoCompatibility(workflow, record.model || config.model)
+  return { workflow, hash: workflowHash(workflow), compatibility }
+}
+
 function buildWorkflowPrompt(
   config: AIConfig,
   model: string | null | undefined,
@@ -439,19 +551,31 @@ export class ComfyUIVideoAdapter extends ComfyUIAdapterBase implements VideoProv
   provider = 'comfyui'
 
   async buildGenerateRequest(config: AIConfig, record: VideoGenerationRecord): Promise<ProviderRequest> {
-    const workflow = buildWorkflowPrompt(
-      config,
-      record.model || config.model,
-      record.prompt,
-      undefined,
-      COMFYUI_VIDEO_WORKFLOW,
-      process.env.COMFYUI_VIDEO_WORKFLOW,
-    )
-    injectVideoDuration(workflow, record.duration)
-    injectVideoSeed(workflow, resolveComfyUIVideoSeed(record.seed))
+    assertVideoIdentity(record)
+    const workflow = cloneVideoWorkflow(record.workflowSnapshot ?? loadWorkflow(
+      record.model || config.model, COMFYUI_VIDEO_WORKFLOW, process.env.COMFYUI_VIDEO_WORKFLOW,
+    ))
+    if (record.workflowSnapshot) {
+      const hash = workflowHash(workflow)
+      if (record.workflowHash && record.workflowHash !== hash) throw new Error('ComfyUI workflowSnapshot 与 workflowHash 不匹配')
+      injectVideoSeed(workflow, fixedVideoSeed(record))
+      if (workflowHash(workflow) !== hash) throw new Error('ComfyUI seed 与冻结 workflowSnapshot 不匹配')
+    } else {
+      injectVideoDuration(workflow, record.duration)
+      injectVideoSeed(workflow, resolveComfyUIVideoSeed(record.seed))
+    }
+    if (record.continuityMode === 'motion_context') {
+      if (record.firstFrameUrl || record.lastFrameUrl) throw new Error('H3 Motion Context 不能同时指定首帧或尾帧图片')
+      assertComfyUIContextArtifact(record.continuitySourceArtifact)
+      const compatibility = videoCompatibility(workflow, record.compatibility?.model || record.model || config.model)
+      if (record.compatibility) assertComfyUIVideoCompatibility(compatibility, record.compatibility)
+      await verifyComfyUIContext(config, record.continuitySourceArtifact, compatibility)
+    }
     const prompt = await injectComfyUIVideoReferences(config, record, workflow)
     injectPrompt(workflow, prompt)
-    return this.buildRequest(config, workflow, `huobao-video-${record.id}`)
+    const request = this.buildRequest(config, workflow, `huobao-video-${record.id}`)
+    request.body.extra_data = { huobao_request_key: record.requestKey, huobao_task_id: record.id }
+    return request
   }
 
   parseGenerateResponse(result: any): VideoGenResponse {

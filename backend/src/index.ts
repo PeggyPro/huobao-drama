@@ -26,10 +26,11 @@ import storage from './routes/storage.js'
 import serverUpdate from './routes/serverUpdate.js'
 import { requestLogger, errorHandler } from './middleware/logger.js'
 import { db, schema } from './db/index.js'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { now } from './utils/response.js'
 import { DATA_ROOT } from './utils/paths.js'
 import { recoverInterruptedTasks, SERVICE_RESTART_ERROR } from './services/generation.js'
+import { recoverLegacyVideoTasks, startVideoQueue } from './services/video-queue.js'
 import os from 'os'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -132,11 +133,13 @@ if (!/^(127\.|localhost$|::1$)/i.test(HOST)) {
   for (const url of lanUrls(PORT)) console.log(`📡 局域网访问: ${url}`)
 }
 
-// 进程重启后内存中的轮询线程全部丢失。先把没有恢复入口的 processing 任务
-// 标记为中断，再让 ComfyUI 已经拿到 prompt_id 的任务重新接上 /history 轮询。
+// 视频使用持久化租约恢复；不得把另一进程仍持有租约的任务标成失败。
+recoverLegacyVideoTasks()
+startVideoQueue()
+// 图片仍沿用原有恢复入口。
 db.update(schema.sysTask)
   .set({ status: 'failed', errorMsg: SERVICE_RESTART_ERROR, updatedAt: now() })
-  .where(eq(schema.sysTask.status, 'processing'))
+  .where(and(eq(schema.sysTask.status, 'processing'), eq(schema.sysTask.type, 'image')))
   .then(async res => {
     const affected = res?.changes ?? 0
     if (affected > 0) console.log(`🔁 已清理 ${affected} 个中断的生成任务`)

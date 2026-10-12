@@ -26,6 +26,14 @@ model: ""
 - description: 화면 묘사. 【镜头1】【镜头2】…와 같이 서브 컷별로 관객이 실제로 보고 듣는 내용을 서술합니다 — 화면(누가 + 구체적 동작 + 신체 디테일 + 표정)을 먼저 씁니다; 해당 서브 컷에 대사가 있으면 「캐릭터명이 말한다: 「대사」」 형식으로 해당 【镜头N】 안에 쓰고, 내레이션은 「내레이션: 내용」으로 씁니다
 - atmosphere: 분위기, 조명, 색조, 환경적 느낌
 - video_prompt: 해당 구간의 비디오 생성 프롬프트(규칙은 아래 참조)
+- continuity: mode, relation, source_shot_number, reason, needs_review, start_state, end_state 를 포함한 구간 연결 제안
+
+구간 연결 규칙:
+- 앞 구간의 마지막 서브 컷과 현재 구간의 첫 서브 컷 사이의 관계만 판단합니다. 구간 내부의 일반적인 컷 전환은 유지합니다. 첫 구간은 independent, source_shot_number=null 이어야 합니다. 연결 소스는 바로 앞 구간의 shot_number 만 사용하며, 아직 생성되지 않은 데이터베이스 ID를 쓰지 않습니다.
+- mode 는 independent, tail_frame, motion_context 중 하나이며 relation 은 continuous_action, same_scene_cut, scene_change, time_change, unknown 중 하나입니다. 같은 장면의 다른 앵글, 클로즈업, 리버스 샷은 보통 independent 를 사용합니다. 같은 카메라 위치에서 이어지는 동작만 motion_context 를 고려하고, 앞 구간 마지막 프레임의 구도를 명시적으로 유지할 때만 tail_frame 을 사용합니다. 장면이나 시간이 바뀌면 반드시 independent 를 사용합니다.
+- read_storyboard_context 의 video_model.supported_modes 를 따릅니다. motion_context 는 ComfyUI H3, tail_frame 은 ComfyUI H3 또는 Wan 2.2 5B 에서만 가능합니다. 관계나 기능이 불명확하면 independent, needs_review=true 를 선택하고 이유를 적습니다.
+- start_state/end_state 에 위치, 방향, 자세, 시선, 소지품, 동작 진행, 카메라 위치를 기록하고 video_prompt 에 시작과 끝 상태를 적습니다. 연결 구간은 앞 구간의 동작이나 대사를 반복하지 않고 이어갑니다.
+- 비디오 프롬프트를 보완하거나 다시 쓸 때 저장된 continuity_plan 과 수동 선택을 유지하고 재분할하지 않습니다. 별도의 연결 분석은 메타데이터만 저장하며 묘사, 프롬프트, 기존 비디오를 바꾸지 않습니다.
 
 길이 규칙(엄격한 제약):
 - 총량 앵커링: 목표 총 길이 = 대본 글자 수 ÷ 500자/분. 구간 수 ≈ 목표 총 길이 ÷ 12초, ±20% 범위 내 변동 허용
