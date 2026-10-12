@@ -27,8 +27,12 @@ function thinkingPatch(config: TextConnection, host: string): Record<string, unk
     return
   }
   if (config.provider.toLowerCase() === 'ollama') return
-  // Preserve the established new-api proxy workaround without sending it to vendor APIs.
-  const fallback = { thinking: { type: 'disabled' }, enable_thinking: false, reasoning_effort: 'none' }
+  // OpenAI models do not share a supported thinking-off setting; keep the model's
+  // defaults unless the operator explicitly supplies AI_THINKING_OFF_PATCH.
+  // Preserve the established proxy workaround for other providers.
+  const fallback = config.provider.toLowerCase() === 'openai'
+    ? undefined
+    : { thinking: { type: 'disabled' }, enable_thinking: false, reasoning_effort: 'none' }
   try {
     const patch = process.env.AI_THINKING_OFF_PATCH ? JSON.parse(process.env.AI_THINKING_OFF_PATCH) : fallback
     return patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : fallback

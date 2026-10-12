@@ -22,10 +22,11 @@ globalThis.fetch = async () => { throw new Error('Unmocked network is forbidden 
 const { db, dbPath } = await import('../src/db/index.js')
 const { default: storyboards } = await import('../src/routes/storyboards.js')
 const { default: tasks } = await import('../src/routes/tasks.js')
+const { default: episodes } = await import('../src/routes/episodes.js')
 const { stopVideoQueue } = await import('../src/services/video-queue.js')
 const { STORAGE_ROOT } = await import('../src/utils/paths.js')
 const sqlite = db.$client
-const app = new Hono().route('/api/v1/storyboards', storyboards).route('/api/v1/tasks', tasks)
+const app = new Hono().route('/api/v1/storyboards', storyboards).route('/api/v1/tasks', tasks).route('/api/v1/episodes', episodes)
 const timestamp = '2026-01-01T00:00:00.000Z'
 const model = 'MiniMax_H3_route_fixture'
 type Json = Record<string, any>
@@ -232,6 +233,25 @@ test('DELETE soft-deletes the shot, retains its video history, and marks the new
   assert.equal(saved.source_storyboard_id, 101, 'do not silently rebind the manual choice')
   assert.equal(following.continuity_revision, 1)
   assert.equal(following.video_url, previousVideo)
+})
+
+test('episode storyboard list does not restore soft-deleted shots after a refresh', async () => {
+  const before = await request('GET', '/episodes/9/storyboards')
+  assert.equal(before.status, 200)
+  assert.deepEqual(before.data.map((shot: Json) => shot.id), [100, 101, 102])
+  assert.equal((await request('DELETE', '/storyboards/101')).status, 200)
+
+  const refreshed = await request('GET', '/episodes/9/storyboards')
+  assert.equal(refreshed.status, 200)
+  assert.deepEqual(refreshed.data.map((shot: Json) => shot.id), [100, 102])
+  assert.deepEqual(refreshed.data[0], before.data[0], 'surviving shot metadata, video version and bindings stay unchanged')
+  assert.ok(row(101).deleted_at, 'retain the deleted row for history')
+  assert.equal(task(501).status, 'completed', 'retain its completed video history')
+
+  for (const id of [100, 102]) assert.equal((await request('DELETE', `/storyboards/${id}`)).status, 200)
+  assert.deepEqual((await request('GET', '/episodes/9/storyboards')).data, [])
+  assert.deepEqual((await request('GET', '/episodes/10/storyboards')).data.map((shot: Json) => shot.id), [110])
+  assert.deepEqual(networkCalls, [], 'listing and deleting isolated rows must not contact any provider')
 })
 
 test('POST returns snake-case shot metadata and marks an existing displaced source for review', async () => {

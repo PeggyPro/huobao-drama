@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import { createTextModel } from '../src/services/text-model.js'
 import { probeTextConnection } from '../src/services/text-probe.js'
 import { defaultTextAPIFormat, getTextProviderBaseUrl, normalizeTextAPIFormat, parseConfigAPIFormat, textProviders, type TextConnection } from '../src/services/text-providers.js'
@@ -14,6 +14,14 @@ const config: TextConnection = { provider: 'claude', baseUrl: 'https://api.anthr
 
 function openaiResponse() {
   return { id: 'chatcmpl-test', object: 'chat.completion', created: 1, model: 'test-model', choices: [{ index: 0, message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } }
+}
+
+function thinkingEnv(t: TestContext) {
+  for (const name of ['AI_DISABLE_THINKING', 'AI_THINKING_OFF_PATCH']) {
+    const saved = process.env[name]
+    t.after(() => { if (saved === undefined) delete process.env[name]; else process.env[name] = saved })
+    delete process.env[name]
+  }
 }
 
 function anthropicStream(block: { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: unknown }) {
@@ -131,6 +139,76 @@ test('Claude compatibility uses Bearer/chat and vendor APIs avoid generic proxy-
     })
     assert.equal(result.ok, true, result.message)
   }
+})
+
+test('OpenAI relay probes, generation and streaming keep model thinking defaults', async t => {
+  thinkingEnv(t)
+  for (const modelName of ['gpt-6.1-sol', 'o3', 'gpt-4.1-mini']) {
+    const connection: TextConnection = { provider: 'openai', baseUrl: 'http://relay.example:8080', apiKey: 'fake-key', model: modelName }
+    let requests = 0
+    const fetchImpl: typeof fetch = async (url, init) => {
+      requests++
+      assert.equal(String(url), 'http://relay.example:8080/v1/chat/completions')
+      const body = JSON.parse(String(init?.body))
+      if (body.reasoning_effort === 'none') {
+        return json({ error: { message: `${modelName} does not support reasoning effort "none"; use low, medium, high or max`, type: 'invalid_request_error' } }, 400)
+      }
+      for (const field of ['thinking', 'enable_thinking', 'reasoning_effort']) assert.equal(body[field], undefined, `${modelName}: ${field}`)
+      if (requests === 1) assert.equal(body.max_completion_tokens ?? body.max_tokens, 64)
+      if (body.stream) {
+        const chunk = { id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 1, model: modelName, choices: [{ index: 0, delta: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }] }
+        return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+      return json(openaiResponse())
+    }
+    const probe = await probeTextConnection(connection, fetchImpl)
+    assert.equal(probe.ok, true, `${modelName}: ${probe.response_preview || probe.message}`)
+    const model = createTextModel(connection, { fetch: fetchImpl })
+    assert.deepEqual((await model.doGenerate({ prompt })).content, [{ type: 'text', text: 'OK' }])
+    const { stream } = await model.doStream({ prompt })
+    let text = ''
+    for await (const part of stream) {
+      assert.notEqual(part.type, 'error')
+      if (part.type === 'text-delta') text += part.delta
+    }
+    assert.equal(text, 'OK')
+    assert.equal(requests, 3)
+  }
+})
+
+test('OpenAI relay thinking overrides remain opt-in and invalid overrides keep safe defaults', async t => {
+  thinkingEnv(t)
+  const connection: TextConnection = { provider: 'openai', baseUrl: 'https://relay.example', apiKey: 'fake-key', model: 'gpt-6.1-sol' }
+  for (const patch of ['{"reasoning_effort":"low"}', '{invalid', 'null', '[]']) {
+    process.env.AI_THINKING_OFF_PATCH = patch
+    const result = await probeTextConnection(connection, async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      assert.equal(body.reasoning_effort, patch.startsWith('{"') ? 'low' : undefined)
+      assert.equal(body.thinking, undefined)
+      assert.equal(body.enable_thinking, undefined)
+      return json(openaiResponse())
+    })
+    assert.equal(result.ok, true, result.message)
+  }
+  process.env.AI_THINKING_OFF_PATCH = '{"reasoning_effort":"low"}'
+  process.env.AI_DISABLE_THINKING = 'false'
+  const result = await probeTextConnection(connection, async (_url, init) => {
+    assert.equal(JSON.parse(String(init?.body)).reasoning_effort, undefined)
+    return json(openaiResponse())
+  })
+  assert.equal(result.ok, true, result.message)
+})
+
+test('other compatible relays retain the existing thinking workaround', async t => {
+  thinkingEnv(t)
+  const result = await probeTextConnection({ provider: 'deepseek', baseUrl: 'https://relay.example', apiKey: 'fake-key', model: 'deepseek-chat' }, async (_url, init) => {
+    const body = JSON.parse(String(init?.body))
+    assert.deepEqual(body.thinking, { type: 'disabled' })
+    assert.equal(body.enable_thinking, false)
+    assert.equal(body.reasoning_effort, 'none')
+    return json(openaiResponse())
+  })
+  assert.equal(result.ok, true, result.message)
 })
 
 test('auth, model/path, rate limit and invalid successful responses never pass the probe', async () => {
