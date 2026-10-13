@@ -136,15 +136,113 @@ test('an error inside the stream fails without replaying an already executed sav
   assert.equal(requests, 2)
 })
 
-test('other chat agents retain their non-streaming provider behavior', async () => {
+test('script rewriting streams long tool arguments, saves once and returns the complete result', async () => {
+  const content = '## S1 | 外景 · 庭院 | 清晨\n' + '主角走进庭院，展开信纸。\n主角：（抬头）终于找到你了。\n'.repeat(300)
+  let stored = ''
+  let saves = 0
   let requests = 0
   const model = createTextModel(connection, { fetch: async (_url, init) => {
+    const body = JSON.parse(String(init?.body))
+    assert.equal(body.stream, true, 'long screenplay responses must not use buffered completions')
     requests++
-    assert.notEqual(JSON.parse(String(init?.body)).stream, true)
-    return json({ ...completion, choices: [{ index: 0, message: { role: 'assistant', content: '已改写。' }, finish_reason: 'stop' }] })
+    if (requests === 1) return toolResponse('read-script', 'readEpisodeScript', {})
+    if (requests === 2) {
+      assert.ok(body.messages.some((message: { role: string; content: string }) => message.role === 'tool' && message.content.includes('待改写的原文')))
+      return toolResponse('save-script', 'saveScript', { content })
+    }
+    assert.equal(requests, 3)
+    assert.equal(stored, content, 'the complete script must be saved before the final model request')
+    return sse([{ role: 'assistant', content: '已改写并保存。' }], 'stop')
   } })
-  const agent = new Agent({ id: 'script_rewriter', name: 'Rewrite test', instructions: 'Rewrite the script.', model })
+  const agent = new Agent({
+    id: 'script_rewriter', name: 'Rewrite test', instructions: 'Read, rewrite and save the script.', model,
+    tools: {
+      readEpisodeScript: createTool({
+        id: 'read_episode_script', description: 'Read the script', inputSchema: z.object({}),
+        execute: async (_input, toolContext) => {
+          assert.equal(toolContext?.requestContext?.get('episodeId'), 9)
+          return { content: '待改写的原文' }
+        },
+      }),
+      saveScript: createTool({
+        id: 'save_script', description: 'Save the script', inputSchema: z.object({ content: z.string() }),
+        execute: async (input, toolContext) => {
+          assert.equal(toolContext?.requestContext?.get('episodeId'), 9)
+          stored = input.content
+          saves++
+          return { message: 'Script saved', word_count: stored.length }
+        },
+      }),
+    },
+  })
   const result = await runAgentChat(agent, '改写剧本', context())
-  assert.equal(result.text, '已改写。')
+  assert.equal(result.text, '已改写并保存。')
+  assert.equal(result.error, undefined)
+  assert.equal(result.toolCalls.length, 2)
+  assert.equal(result.toolResults.length, 2)
+  assert.equal(stored, content)
+  assert.equal(saves, 1)
+  assert.equal(requests, 3)
+})
+
+test('a rewrite headers timeout propagates the upstream error instead of reporting success', async () => {
+  let requests = 0
+  const cause = Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' })
+  const model = createTextModel(connection, { fetch: async (_url, init) => {
+    assert.equal(JSON.parse(String(init?.body)).stream, true)
+    requests++
+    throw new TypeError('fetch failed', { cause })
+  } })
+  const agent = new Agent({ id: 'script_rewriter', name: 'Rewrite timeout test', instructions: 'Rewrite the script.', model })
+  await assert.rejects(runAgentChat(agent, '改写剧本', context()), (error: any) => {
+    assert.match(error.message, /Headers Timeout Error/)
+    assert.equal(error.url, 'https://gateway.example/v1/chat/completions')
+    assert.equal(error.cause.code, 'UND_ERR_HEADERS_TIMEOUT')
+    return true
+  })
   assert.equal(requests, 1)
 })
+
+for (const savedBeforeFailure of [false, true]) {
+  test(`a rewrite stream failure keeps ${savedBeforeFailure ? 'the saved script without replaying it' : 'an incomplete script out of the save tool'}`, async () => {
+    let requests = 0
+    let saves = 0
+    const model = createTextModel(connection, { fetch: async (_url, init) => {
+      assert.equal(JSON.parse(String(init?.body)).stream, true)
+      requests++
+      if (savedBeforeFailure && requests === 1) return toolResponse('saved', 'saveScript', { content: '完整剧本' })
+      const partial = { ...completion, object: 'chat.completion.chunk', choices: [{ index: 0, delta: {
+        role: 'assistant', tool_calls: [{ index: 0, id: 'incomplete', type: 'function', function: { name: 'saveScript', arguments: '{"content":"未完成的剧本' } }],
+      }, finish_reason: null }] }
+      return new Response(`data: ${JSON.stringify(partial)}\n\ndata: {"error":{"message":"upstream stream interrupted","type":"server_error"}}\n\ndata: [DONE]\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    } })
+    const agent = new Agent({
+      id: 'script_rewriter', name: 'Interrupted rewrite test', instructions: 'Rewrite and save the script.', model,
+      tools: { saveScript: { description: 'Save once', inputSchema: z.object({ content: z.string() }), execute: async ({ content }) => {
+        assert.equal(content, '完整剧本', 'partial output must never reach the save tool')
+        saves++
+        return { message: 'Script saved' }
+      } } },
+    })
+    await assert.rejects(runAgentChat(agent, '改写剧本', context()), /upstream stream interrupted|流式响应异常/)
+    assert.equal(saves, savedBeforeFailure ? 1 : 0)
+    assert.equal(requests, savedBeforeFailure ? 2 : 1)
+  })
+}
+
+for (const id of ['extractor', 'prompt_generator']) {
+  test(`${id} retains its non-streaming provider behavior`, async () => {
+    let requests = 0
+    const model = createTextModel(connection, { fetch: async (_url, init) => {
+      requests++
+      assert.notEqual(JSON.parse(String(init?.body)).stream, true)
+      return json({ ...completion, choices: [{ index: 0, message: { role: 'assistant', content: '已完成。' }, finish_reason: 'stop' }] })
+    } })
+    const agent = new Agent({ id, name: 'Other chat test', instructions: 'Complete the task.', model })
+    const result = await runAgentChat(agent, '执行任务', context())
+    assert.equal(result.text, '已完成。')
+    assert.equal(requests, 1)
+  })
+}

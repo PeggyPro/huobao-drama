@@ -52,10 +52,20 @@ export function toolOutcome(entry: unknown) {
   return { id: String(payload.toolCallId ?? ''), name, failed, message, saved }
 }
 
-/** Keep the HTTP chat response as JSON while receiving long storyboard output incrementally. */
+/** Keep the HTTP chat response as JSON while receiving long script/storyboard output incrementally. */
 export async function runAgentChat(agent: Agent, message: string, requestContext: RequestContext<AgentRequestContextValues>) {
   const messages = [{ role: 'user' as const, content: message }]
   const options = { maxSteps: 20, requestContext }
+  if (agent.id === 'script_rewriter') {
+    // Buffered completions can hit the HTTP headers timeout while the model writes
+    // a long screenplay. Consume the stream, including complete save_script calls.
+    const stream = await agent.stream(messages, options)
+    const result = await stream.getFullOutput()
+    // A stream failure must not look successful or replay an already executed save.
+    if (result.error) throw result.error
+    if (result.finishReason === 'error') throw new Error('剧本改写失败：文本模型流式响应异常')
+    return result
+  }
   if (agent.id !== 'storyboard_breaker') return agent.generate(messages, options)
 
   // Only database tools can fulfill this request. Workspace file writes are not a save.
