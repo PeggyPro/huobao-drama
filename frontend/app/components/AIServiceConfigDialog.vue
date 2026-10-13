@@ -56,6 +56,13 @@
             <label class="field"><span class="field-label">{{ t('settings.cfg.priority') }}</span><input v-model.number="form.priority" class="input" type="number" min="0" max="999" /><span class="field-hint">{{ t('settings.cfg.priorityHint') }}</span></label>
             <label v-if="isText" class="field"><span class="field-label">Temperature <span class="dim">({{ t('settings.cfg.tempHint') }})</span></span><input v-model="form.temperature" class="input" type="number" step="0.1" min="0" :max="maxTemperature" :placeholder="t('settings.cfg.tempPlaceholder')" /><span class="field-hint">{{ t('settings.cfg.tempNote') }} (0–{{ maxTemperature }})</span></label>
           </div>
+          <label v-if="isText" class="field">
+            <span class="field-label">{{ t('settings.cfg.reasoningEffort') }}</span>
+            <select v-model="form.reasoning_effort" class="input reasoning-select" :aria-label="t('settings.cfg.reasoningEffort')">
+              <option v-for="effort in reasoningEffortsFor(form.api_format)" :key="effort" :value="effort">{{ effort === 'default' ? t('settings.cfg.reasoningDefault') : effort === 'none' ? t('settings.cfg.reasoningNone') : effort }}</option>
+            </select>
+            <span class="field-hint">{{ t('settings.cfg.reasoningHint') }}</span>
+          </label>
         </fieldset>
         <p v-if="isText" class="probe-notice"><Info :size="14" />{{ t('settings.providers.testNotice') }}</p>
         <div v-if="result" class="test-result" :class="result.ok ? 'ok' : result.reachable ? 'warning' : 'bad'" role="status" aria-live="polite">
@@ -98,6 +105,7 @@ import { toastError } from '~/composables/useToast'
 import { useAIConfigForm, useConfigProbe, applyTextProvider, applyTextFormat, changeDraftBaseUrl, aiConfigPayload, type SavedAIConfig, type ServiceType } from '~/composables/useAIConfigForm'
 import { textProviderById, type TextApiFormat } from '~/utils/textProviderCatalog'
 import { MEDIA_PROVIDERS, MEDIA_PROVIDER_PRESETS } from '~/utils/mediaProviderPresets'
+import { reasoningEffortsFor } from '~/utils/textReasoning'
 
 const props = withDefaults(defineProps<{ config?: SavedAIConfig | null; serviceType?: ServiceType; focusTest?: boolean }>(), { config: null, serviceType: 'text', focusTest: false })
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -255,7 +263,7 @@ function trapFocus(event: KeyboardEvent) {
   if (event.key !== 'Tab') return
   const root = event.currentTarget instanceof HTMLElement ? event.currentTarget : dialogEl.value
   if (!root) return
-  const focusable = [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length)
+  const focusable = [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length)
   const first = focusable[0]
   const last = focusable.at(-1)
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }

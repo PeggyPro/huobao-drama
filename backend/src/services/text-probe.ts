@@ -57,10 +57,13 @@ export async function probeTextConnection(config: TextConnection, fetchImpl: typ
   }
   try {
     const model = createTextModel(config, { fetch: probeFetch, probe: true })
+    const explicitThinking = !!config.reasoningEffort && !['default', 'none'].includes(config.reasoningEffort)
     const result = await model.doGenerate({
       prompt: [{ role: 'user', content: [{ type: 'text', text: 'Reply with OK.' }] }],
-      maxOutputTokens: 64,
-      abortSignal: AbortSignal.timeout(30_000),
+      // Reasoning consumes output tokens too; 64 may run out before the model can say OK.
+      // Leave the old probe budget and deadline untouched for default/none.
+      maxOutputTokens: explicitThinking ? 4096 : 64,
+      abortSignal: AbortSignal.timeout(explicitThinking ? 60_000 : 30_000),
     })
     if (!generatedText(result)) {
       return {
@@ -74,7 +77,7 @@ export async function probeTextConnection(config: TextConnection, fetchImpl: typ
     }
   } catch (error) {
     const messages: Record<number, string> = {
-      400: '服务商拒绝了请求，请检查模型、接口格式和 Temperature',
+      400: '服务商拒绝了请求，请检查模型、接口格式、推理等级和 Temperature',
       401: 'API Key 无效或已过期，请检查密钥是否属于当前服务商或套餐',
       403: '没有访问权限，请检查模型权限、地域或套餐状态',
       404: '接口或模型不存在，请检查 Base URL、接口格式与模型 ID',

@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createOpenAI } from '@ai-sdk/openai'
 import { getTextProviderBaseUrl, normalizeTextAPIFormat, type TextConnection } from './text-providers.js'
+import { validateReasoningEffort } from './text-reasoning.js'
 
 const officialHosts = new Set([
   'api.openai.com', 'api.anthropic.com', 'generativelanguage.googleapis.com',
@@ -50,7 +51,9 @@ export function createTextFetch(config: TextConnection, options: TextFetchOption
   const base = options.fetch || globalThis.fetch
   const format = normalizeTextAPIFormat(config.provider, config.apiFormat)
   const host = new URL(getTextProviderBaseUrl(config)).hostname
-  const patch = thinkingPatch(config, host)
+  const effort = validateReasoningEffort(format, config.reasoningEffort)
+  // A user's explicit choice must not be overwritten by the legacy thinking-off patches.
+  const patch = effort === 'default' ? thinkingPatch(config, host) : undefined
   const requestedMax = Number(process.env.AI_MAX_TOKENS || 16384)
   const maxTokens = Number.isSafeInteger(requestedMax) && requestedMax > 0 ? requestedMax : 16384
   return async (input, init) => {
@@ -67,10 +70,29 @@ export function createTextFetch(config: TextConnection, options: TextFetchOption
                 : { thinkingBudget: 0, includeThoughts: false },
             }
           }
+          if (effort !== 'default') {
+            body.generationConfig = {
+              ...body.generationConfig,
+              thinkingConfig: effort === 'none'
+                ? { thinkingBudget: 0, includeThoughts: false }
+                : { thinkingLevel: effort },
+            }
+          }
           if (config.temperature != null) body.generationConfig = { ...body.generationConfig, temperature: config.temperature }
           if (!options.probe) body.generationConfig = { ...body.generationConfig, maxOutputTokens: maxTokens }
         } else if (Array.isArray(body.messages)) {
           if (patch) Object.assign(body, patch)
+          if (format === 'openai' && effort !== 'default') {
+            // Apply after serialization as gateways may support values beyond the SDK's
+            // per-model capability table. Never silently downgrade max to another effort.
+            body.reasoning_effort = effort
+            if (host.startsWith('dashscope') || host.endsWith('.maas.aliyuncs.com')) {
+              body.enable_thinking = effort !== 'none'
+            } else if (['api.deepseek.com', 'ark.cn-beijing.volces.com', 'open.bigmodel.cn',
+              'api.moonshot.cn', 'api.moonshot.ai', 'api.xiaomimimo.com', 'token-plan-cn.xiaomimimo.com'].includes(host)) {
+              body.thinking = { type: effort === 'none' ? 'disabled' : 'enabled' }
+            }
+          }
           if (format !== 'anthropic' && config.temperature != null) body.temperature = config.temperature
           // Claude's SDK selects a model-appropriate max_tokens; keep it intact.
           if (!options.probe && format === 'openai' && host !== 'api.openai.com') {
@@ -93,6 +115,7 @@ export function createTextModel(config: TextConnection, options: TextFetchOption
       throw new Error('Anthropic 原生接口的 Temperature 须为 0 到 1 之间的数字')
     }
     const model = createAnthropic({ baseURL, apiKey: config.apiKey, fetch })(config.model)
+    const effort = validateReasoningEffort(format, config.reasoningEffort)
     // Pass settings before SDK serialization so it can enforce temperature/thinking and model token limits.
     const requestedMax = Number(process.env.AI_MAX_TOKENS || 16384)
     const maxOutputTokens = Number.isSafeInteger(requestedMax) && requestedMax > 0 ? requestedMax : 16384
@@ -103,6 +126,14 @@ export function createTextModel(config: TextConnection, options: TextFetchOption
             ...call,
             maxOutputTokens: call.maxOutputTokens ?? maxOutputTokens,
             ...(config.temperature != null ? { temperature: config.temperature } : {}),
+            ...(effort !== 'default' ? { providerOptions: {
+              ...call.providerOptions,
+              anthropic: {
+                ...call.providerOptions?.anthropic,
+                thinking: { type: effort === 'none' ? 'disabled' : 'adaptive' },
+                effort: effort === 'none' ? undefined : effort,
+              },
+            } } : {}),
           })
         }
         return Reflect.get(target, property, receiver)

@@ -7,22 +7,26 @@
           <img v-if="triggerIcon" :src="triggerIcon" class="model-select-icon" alt="" />
           <span v-else-if="currentOption?.provider" class="model-select-provider">{{ currentOption.provider }}</span>
           <span class="model-select-value">{{ currentLabel }}</span>
+          <span v-if="currentReasoning" class="model-select-effort">{{ currentReasoning }}</span>
           <ChevronDown :size="11" class="model-select-arrow" :class="{ open: isOpen }" />
         </button>
       </template>
 
-      <AppMenuItem v-if="!hideDefault" :selected="modelValue === ''" @click="pick('')">
+      <AppMenuItem v-if="!hideDefault" class="model-select-option" :selected="modelValue === ''" @click="pick('')">
         <img v-if="defaultIcon" :src="defaultIcon" class="model-select-icon sm" alt="" />
         <span class="model-select-dim">{{ effectiveDefaultLabel }}</span>
+        <span v-if="defaultReasoning" class="model-select-effort">{{ defaultReasoning }}</span>
       </AppMenuItem>
       <AppMenuItem
         v-for="o in options"
         :key="o.key || o.model"
+        class="model-select-option"
         :selected="modelValue === (o.key || o.model)"
-        :title="`${o.model}${o.configName ? ` · ${o.configName}` : ''}`"
+        :title="`${o.model}${reasoningSuffix(o.reasoningEffort) ? ` ${reasoningSuffix(o.reasoningEffort)}` : ''}${o.configName ? ` · ${o.configName}` : ''}`"
         @click="pick(o.key || o.model)"
       >
         <span class="model-select-option-name">{{ o.model }}</span>
+        <span v-if="reasoningSuffix(o.reasoningEffort)" class="model-select-effort">{{ reasoningSuffix(o.reasoningEffort) }}</span>
         <template v-if="modelIconUrl(o.provider, o.model)" #trailing>
           <img :src="modelIconUrl(o.provider, o.model)" class="model-select-icon sm" alt="" />
         </template>
@@ -36,6 +40,7 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronDown } from 'lucide-vue-next'
 import { modelIconUrl } from '~/composables/useProviderIcon'
+import { reasoningSuffix } from '~/utils/textReasoning'
 
 const props = defineProps({
   label: { type: String, required: true },          // 改写 / 图片 / 视频
@@ -54,6 +59,8 @@ const isOpen = ref(false)
 const effectiveDefaultLabel = computed(() => props.defaultLabel || t('common.default'))
 const currentOption = computed(() => props.options.find(o => (o.key || o.model) === props.modelValue) || null)
 const currentLabel = computed(() => currentOption.value?.model || effectiveDefaultLabel.value)
+const defaultReasoning = computed(() => reasoningSuffix(props.options[0]?.reasoningEffort))
+const currentReasoning = computed(() => currentOption.value ? reasoningSuffix(currentOption.value.reasoningEffort) : defaultReasoning.value)
 // 默认 = 首个选项；未显式选模型时也展示默认模型的厂商图标（与 defaultLabel 取 options[0] 同口径）
 // 图标按模型名推断（网关 provider=openai 但模型实为 deepseek 等场景），回退 provider
 const defaultIcon = computed(() => modelIconUrl(props.options[0]?.provider, props.options[0]?.model))
@@ -139,5 +146,7 @@ function pick(model) {
   text-overflow: ellipsis;
   max-width: 320px;
 }
-.model-select-dim { color: var(--text-3); }
+.model-select-option :deep(.app-menu-item-label) { display: flex; align-items: center; gap: 6px; }
+.model-select-dim { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.model-select-effort { flex-shrink: 0; color: var(--accent); font-size: inherit; }
 </style>

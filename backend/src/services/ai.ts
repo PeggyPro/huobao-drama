@@ -5,6 +5,7 @@ import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { logTaskProgress, logTaskWarn } from '../utils/task-logger.js'
 import { parseConfigAPIFormat, textProviders, type TextAPIFormat } from './text-providers.js'
+import { parseConfigReasoningEffort, type TextReasoningEffort } from './text-reasoning.js'
 export { getTextProviderBaseUrl } from './text-providers.js'
 
 export type ServiceType = 'text' | 'image' | 'video'
@@ -18,6 +19,8 @@ export interface AIConfig {
   temperature?: number | null
   /** Text wire format, persisted in settings.api_format; omitted for media services. */
   apiFormat?: TextAPIFormat
+  /** Text-only setting; default keeps the previous provider behavior. */
+  reasoningEffort?: TextReasoningEffort
 }
 
 /** 从 settings JSON 解析 temperature；非法值一律视为未设置 */
@@ -64,7 +67,10 @@ function rowToConfig(row: typeof schema.aiServiceConfigs.$inferSelect): AIConfig
     apiKey: row.apiKey,
     model: models[0] || '',
     temperature: parseConfigTemperature(row.settings),
-    ...(row.serviceType === 'text' ? { apiFormat: parseConfigAPIFormat(row.provider || '', row.settings) } : {}),
+    ...(row.serviceType === 'text' ? {
+      apiFormat: parseConfigAPIFormat(row.provider || '', row.settings),
+      reasoningEffort: parseConfigReasoningEffort(row.settings),
+    } : {}),
   }
 }
 

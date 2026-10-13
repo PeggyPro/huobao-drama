@@ -4,7 +4,8 @@ import { effectScope, reactive, ref } from 'vue'
 import { loadTs } from './helpers/load-ts.mjs'
 
 const catalog = loadTs('app/utils/textProviderCatalog.ts')
-const { createAIConfigDraft, applyTextProvider, applyTextFormat, changeDraftBaseUrl, aiConfigPayload, useAIConfigForm, useConfigProbe } = loadTs('app/composables/useAIConfigForm.ts', { '../utils/textProviderCatalog': catalog })
+const reasoning = loadTs('app/utils/textReasoning.ts')
+const { createAIConfigDraft, applyTextProvider, applyTextFormat, changeDraftBaseUrl, aiConfigPayload, useAIConfigForm, useConfigProbe } = loadTs('app/composables/useAIConfigForm.ts', { '../utils/textProviderCatalog': catalog, '../utils/textReasoning': reasoning })
 const saved = () => ({ id: 12, service_type: 'text', name: 'My relay', provider: 'claude', base_url: 'https://custom.example/v9', api_key: 'existing-key', api_format: 'openai', model: ['custom-claude', 'backup'], priority: 12, temperature: 1.7 })
 function harness() {
   const scope = effectScope()
@@ -105,6 +106,57 @@ test('shared test/create/update payload carries format and temperature only wher
   assert.equal('api_format' in aiConfigPayload(draft), false)
 })
 
+test('reasoning selection survives edit/test/save while legacy and media configs keep defaults', async () => {
+  for (const grade of reasoning.reasoningEfforts) {
+    const original = { ...saved(), reasoning_effort: grade }
+    const draft = createAIConfigDraft(original, 'text')
+    assert.equal(draft.reasoning_effort, grade)
+    assert.equal(aiConfigPayload(draft).reasoning_effort, grade)
+    assert.deepEqual(aiConfigPayload(draft).model, original.model, 'display suffix must never enter model IDs')
+    draft.reasoning_effort = 'low'
+    assert.equal(createAIConfigDraft(original, 'text').reasoning_effort, grade, 'cancel/reopen preserves saved choice')
+  }
+  for (const value of [undefined, null, '', 'unrecognized']) {
+    assert.equal(createAIConfigDraft({ ...saved(), reasoning_effort: value }, 'text').reasoning_effort, 'default')
+  }
+  const h = harness()
+  h.form.reasoning_effort = 'max'
+  const active = h.start()
+  assert.equal(h.pending[0].payload.reasoning_effort, 'max')
+  h.pending[0].resolve(ok)
+  await active
+  assert.equal(h.result.value.ok, true)
+  h.form.reasoning_effort = 'default'
+  assert.equal(h.result.value, null, 'old probe must not appear valid for a different grade')
+  for (const service of ['image', 'video']) {
+    h.form.service_type = service
+    assert.equal('reasoning_effort' in aiConfigPayload(h.form), false)
+  }
+  h.scope.stop()
+})
+
+test('switching provider or protocol resets reasoning but reselecting preserves it', () => {
+  const draft = createAIConfigDraft({ ...saved(), reasoning_effort: 'max' }, 'text')
+  assert.equal(applyTextProvider(draft, 'claude'), false)
+  assert.equal(draft.reasoning_effort, 'max')
+  assert.equal(applyTextProvider(draft, 'gemini'), true)
+  assert.equal(draft.reasoning_effort, 'default')
+  draft.reasoning_effort = 'high'
+  assert.equal(applyTextFormat(draft, 'google'), false)
+  assert.equal(draft.reasoning_effort, 'high')
+  assert.equal(applyTextFormat(draft, 'openai'), true)
+  assert.equal(draft.reasoning_effort, 'default')
+})
+
+test('reasoning display hides default and offers only protocol-compatible levels', () => {
+  for (const value of [undefined, null, 'default', '', 'invalid']) assert.equal(reasoning.reasoningSuffix(value), '')
+  for (const grade of reasoning.reasoningEfforts.filter(value => value !== 'default')) assert.equal(reasoning.reasoningSuffix(grade), `(${grade})`)
+  assert.deepEqual(reasoning.reasoningEffortsFor('openai'), reasoning.reasoningEfforts)
+  assert.equal(reasoning.reasoningEffortsFor('anthropic').includes('minimal'), false)
+  assert.equal(reasoning.reasoningEffortsFor('anthropic').includes('max'), true)
+  assert.deepEqual(reasoning.reasoningEffortsFor('google'), ['default', 'none', 'minimal', 'low', 'medium', 'high'])
+})
+
 test('model editing deduplicates IDs and moves a selected default without mutating saved arrays', () => {
   const original = saved()
   const scope = effectScope()
@@ -123,7 +175,7 @@ test('changes immediately discard success and invalidate an in-flight response e
   h.pending[0].resolve(ok)
   await first
   assert.equal(h.result.value.ok, true)
-  for (const field of ['provider', 'api_format', 'base_url', 'api_key', 'temperature', 'name', 'priority']) {
+  for (const field of ['provider', 'api_format', 'base_url', 'api_key', 'temperature', 'reasoning_effort', 'name', 'priority']) {
     const original = h.form[field]
     const active = h.start()
     h.form[field] = field === 'temperature' || field === 'priority' ? 0 : 'changed'

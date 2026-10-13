@@ -1,4 +1,5 @@
 import { joinProviderUrl } from './adapters/url.js'
+import type { TextReasoningEffort } from './text-reasoning.js'
 
 export type TextAPIFormat = 'openai' | 'anthropic' | 'google'
 
@@ -34,6 +35,8 @@ export interface TextConnection {
   model: string
   apiFormat?: TextAPIFormat
   temperature?: number | null
+  /** Explicit effort overrides legacy thinking patches; default preserves them. */
+  reasoningEffort?: TextReasoningEffort
 }
 
 export function defaultTextAPIFormat(provider: string): TextAPIFormat {

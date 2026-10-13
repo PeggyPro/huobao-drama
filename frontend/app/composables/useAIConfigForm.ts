@@ -1,5 +1,6 @@
 import { reactive, ref, watch, onScopeDispose, type Ref } from 'vue'
 import { defaultTextApiFormat, resolveTextApiFormat, textProviderById, type TextApiFormat } from '../utils/textProviderCatalog'
+import { savedReasoningEffort, type ReasoningEffort } from '../utils/textReasoning'
 
 export type ServiceType = 'text' | 'image' | 'video'
 export interface SavedAIConfig {
@@ -13,6 +14,7 @@ export interface SavedAIConfig {
   model?: string[] | string
   priority?: number
   temperature?: number | null
+  reasoning_effort?: string | null
 }
 export interface AIConfigDraft {
   name: string
@@ -24,6 +26,7 @@ export interface AIConfigDraft {
   models: string[]
   priority: number
   temperature: string | number | null
+  reasoning_effort: ReasoningEffort
 }
 export interface ConfigProbeResult {
   ok: boolean
@@ -48,6 +51,7 @@ export function createAIConfigDraft(saved: SavedAIConfig | null, serviceType: Se
     models: Array.isArray(saved?.model) ? [...saved.model] : String(saved?.model ?? '').split(',').map(s => s.trim()).filter(Boolean),
     priority: saved?.priority ?? 0,
     temperature: saved?.temperature ?? '',
+    reasoning_effort: savedReasoningEffort(saved?.reasoning_effort),
   }
 }
 
@@ -60,6 +64,7 @@ export function applyTextProvider(draft: AIConfigDraft, id: string): boolean {
   draft.models = [...provider.models]
   draft.api_key = ''
   draft.temperature = ''
+  draft.reasoning_effort = 'default'
   if (!draft.name) draft.name = `${provider.label}-text`
   return true
 }
@@ -67,6 +72,7 @@ export function applyTextProvider(draft: AIConfigDraft, id: string): boolean {
 export function applyTextFormat(draft: AIConfigDraft, format: TextApiFormat): boolean {
   if (draft.api_format === format) return false
   draft.api_format = format
+  draft.reasoning_effort = 'default'
   draft.api_key = ''
   const provider = textProviderById(draft.provider)
   const native = format === defaultTextApiFormat(draft.provider)
@@ -97,7 +103,7 @@ export function aiConfigPayload(draft: AIConfigDraft) {
     model: [...draft.models],
     priority: draft.priority,
     temperature: draft.temperature === '' || draft.temperature === null ? null : Number(draft.temperature),
-    ...(draft.service_type === 'text' ? { api_format: draft.api_format } : {}),
+    ...(draft.service_type === 'text' ? { api_format: draft.api_format, reasoning_effort: draft.reasoning_effort } : {}),
   }
 }
 

@@ -7,6 +7,7 @@ import { joinProviderUrl } from '../services/adapters/url.js'
 import { isOfficialProvider, parseConfigTemperature } from '../services/ai.js'
 import { getTextProviderBaseUrl, normalizeTextAPIFormat, parseConfigAPIFormat } from '../services/text-providers.js'
 import { probeTextConnection } from '../services/text-probe.js'
+import { parseConfigReasoningEffort, validateReasoningEffort } from '../services/text-reasoning.js'
 import { redactUrl, logTaskError, logTaskProgress, logTaskSuccess } from '../utils/task-logger.js'
 
 const app = new Hono()
@@ -36,13 +37,16 @@ function normalizeTemperature(v: any): number | null {
   return n
 }
 
-/** 把 settings JSON 中的 temperature 透出为顶层字段，便于前端直接读写 */
+/** 把 settings 中的温度、文本接口格式与推理等级透出，便于前端直接读写。 */
 function withParsedFields(r: any) {
   return {
     ...toSnakeCase(r),
     model: r.model ? JSON.parse(r.model) : [],
     temperature: parseConfigTemperature(r.settings),
-    ...(r.serviceType === 'text' ? { api_format: parseConfigAPIFormat(r.provider || '', r.settings) } : {}),
+    ...(r.serviceType === 'text' ? {
+      api_format: parseConfigAPIFormat(r.provider || '', r.settings),
+      reasoning_effort: parseConfigReasoningEffort(r.settings),
+    } : {}),
   }
 }
 
@@ -185,6 +189,8 @@ app.post('/', async (c) => {
       const apiFormat = normalizeTextAPIFormat(body.provider, body.api_format)
       normalizedModels = validateTextFields(body.base_url, body.model, body.provider, apiFormat, temperature)
       settings.api_format = apiFormat
+      const reasoningEffort = validateReasoningEffort(apiFormat, body.reasoning_effort)
+      if (reasoningEffort !== 'default') settings.reasoning_effort = reasoningEffort
     } catch (error) {
       return badRequest(c, (error as Error).message)
     }
@@ -226,12 +232,13 @@ app.post('/test', async (c) => {
       const apiFormat = normalizeTextAPIFormat(body.provider, body.api_format)
       const temperature = normalizeTemperature(body.temperature)
       validateTextFields(body.base_url, Array.isArray(body.model) ? body.model : [body.model], body.provider, apiFormat, temperature)
+      const reasoningEffort = validateReasoningEffort(apiFormat, body.reasoning_effort)
       const payload = await probeTextConnection({
         provider: body.provider, baseUrl: body.base_url, apiKey: body.api_key || '',
-        model: model.trim(), apiFormat, temperature,
+        model: model.trim(), apiFormat, temperature, reasoningEffort,
       })
       const log = payload.ok ? logTaskSuccess : logTaskError
-      log('AIConfig', 'text-probe-done', { provider: body.provider, status: payload.status, url: payload.url, apiFormat })
+      log('AIConfig', 'text-probe-done', { provider: body.provider, status: payload.status, url: payload.url, apiFormat, reasoningEffort })
       return success(c, payload)
     } catch (error) {
       return badRequest(c, (error as Error).message)
@@ -329,8 +336,8 @@ app.put('/:id', async (c) => {
   if ('model' in body && serviceType !== 'text') updates.model = JSON.stringify(body.model)
   if ('priority' in body) updates.priority = body.priority
   if ('is_active' in body) updates.isActive = body.is_active
-  if (['temperature', 'api_format', 'provider', 'service_type', 'base_url', 'model'].some(key => key in body)) {
-    // Merge protocol and temperature in one update, preserving other saved settings.
+  if (['temperature', 'api_format', 'reasoning_effort', 'provider', 'service_type', 'base_url', 'model'].some(key => key in body)) {
+    // Merge text options in one update, preserving other saved settings.
     let settings: Record<string, unknown> = {}
     try {
       const parsed = existing.settings ? JSON.parse(existing.settings) : {}
@@ -348,8 +355,13 @@ app.put('/:id', async (c) => {
         const normalizedModels = validateTextFields('base_url' in body ? body.base_url : existing.baseUrl, models, provider, apiFormat, temperature)
         updates.model = JSON.stringify(normalizedModels)
         settings.api_format = apiFormat
+        const reasoningEffort = validateReasoningEffort(apiFormat, 'reasoning_effort' in body ? body.reasoning_effort
+          : previousFormat === apiFormat ? parseConfigReasoningEffort(existing.settings) : 'default')
+        if (reasoningEffort === 'default') delete settings.reasoning_effort
+        else settings.reasoning_effort = reasoningEffort
       } else {
         delete settings.api_format
+        delete settings.reasoning_effort
       }
       updates.settings = Object.keys(settings).length ? JSON.stringify(settings) : null
     } catch (error) {

@@ -2136,7 +2136,7 @@ function configModels(cfg) {
 }
 // 汇总该类型全部启用配置的模型（按 厂商+模型 去重，按优先级排序），选中模型时连同所属配置一起调用
 // 选中值使用 'provider/model' 复合键：同名模型可能来自不同厂商（如中转站与官方），必须区分
-function collectModelOptions(cfgs) {
+function collectModelOptions(cfgs, includeReasoning = false) {
   const seen = new Set()
   const out = []
   const sorted = [...cfgs].filter(c => c.is_active).sort((a, b) => (b.priority || 0) - (a.priority || 0))
@@ -2145,7 +2145,9 @@ function collectModelOptions(cfgs) {
       const key = `${c.provider}/${m}`
       if (seen.has(key)) continue
       seen.add(key)
-      out.push({ key, model: m, provider: c.provider, configId: c.id, configName: c.name || c.provider })
+      out.push({ key, model: m, provider: c.provider, configId: c.id, configName: c.name || c.provider,
+        ...(includeReasoning ? { reasoningEffort: c.reasoning_effort || 'default' } : {}),
+      })
     }
   }
   return out
@@ -2162,7 +2164,7 @@ function ownerConfigId(options, key) {
 function hasMultiConfigs(options) {
   return new Set(options.map(o => o.configId)).size > 1
 }
-const textModelOptions = computed(() => collectModelOptions(textConfigs.value))
+const textModelOptions = computed(() => collectModelOptions(textConfigs.value, true))
 const imageModelOptions = computed(() => collectModelOptions(imageConfigs.value))
 const videoModelOptions = computed(() => collectModelOptions(videoConfigs.value))
 const selectedVideoConfig = computed(() => {
