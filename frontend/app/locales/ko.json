@@ -363,6 +363,7 @@
       "extractor": "캐릭터·장면 추출",
       "storyboardBreaker": "스토리보드 분해",
       "promptGenerator": "프롬프트 생성",
+      "continuityPlanner": "샷 연속성 분석",
       "langFallback": "중국어로 폴백",
       "followContentLang": "편집 언어: {lang} (일반 → AI 콘텐츠 언어에서 전환)"
     },

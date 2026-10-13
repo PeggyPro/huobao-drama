@@ -363,6 +363,7 @@
       "extractor": "角色场景提取",
       "storyboardBreaker": "分镜拆解",
       "promptGenerator": "提示词",
+      "continuityPlanner": "镜头衔接分析",
       "langFallback": "跟随中文",
       "followContentLang": "编辑语言跟随：{lang}（在「通用 → AI 内容语言」切换）"
     },

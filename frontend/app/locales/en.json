@@ -363,6 +363,7 @@
       "extractor": "Asset Extractor",
       "storyboardBreaker": "Storyboard Breaker",
       "promptGenerator": "Prompt Generator",
+      "continuityPlanner": "Shot Continuity Analysis",
       "langFallback": "Falls back to Chinese",
       "followContentLang": "Editing language: {lang} (switch in General → AI Content Language)"
     },

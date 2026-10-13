@@ -4,8 +4,7 @@ import { z } from 'zod'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { buildAgentRequestContext } from '../agents/context.js'
-import { buildLanguageDirective } from '../agents/language.js'
-import { CONTINUITY_RELATION_RULES } from '../agents/continuity-instructions.js'
+import { CONTINUITY_PLANNER_TYPE, loadContinuityPlannerConfig } from '../agents/continuity-planner.js'
 import { storyboardTools } from '../agents/tools/storyboard-tools.js'
 import { toolOutcome } from '../agents/chat.js'
 import { getConfigById, getTextConfig, getActiveConfig } from './ai.js'
@@ -75,10 +74,12 @@ export async function analyzeEpisodeContinuity(episodeId: number, options: {
         }
       },
     })
+    const plannerConfig = await loadContinuityPlannerConfig(requestContext.get('language') || 'zh')
     const agent = new Agent({
-      id: 'continuity_planner', name: '段落衔接分析',
-      model: createTextModel({ ...config, model: options.model || config.model }),
-      instructions: `先调用 readStoryboardContext 阅读剧本及已有分镜。只分析相邻段落关系，不改写内容或视频。使用 saveContinuity 分批保存每个分镜的衔接建议，必须覆盖全部目标ID。这里使用 source_storyboard_id 实际ID，不使用 source_shot_number。保留读取的 continuity_revision。${CONTINUITY_RELATION_RULES}\n本任务仅调用 readStoryboardContext/saveContinuity，不调用拆分或其他保存工具。\n${buildLanguageDirective(requestContext.get('language') || 'zh')}`,
+      id: CONTINUITY_PLANNER_TYPE, name: plannerConfig.name,
+      model: createTextModel({ ...config, model: options.model || plannerConfig.model || config.model }),
+      instructions: plannerConfig.instructions,
+      // Load skill text without attaching a Workspace: its file tools must not be exposed here.
       tools: { readStoryboardContext, saveContinuity },
     })
     const stream = await agent.stream([{

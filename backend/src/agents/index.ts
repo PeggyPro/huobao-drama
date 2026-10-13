@@ -19,6 +19,7 @@ import { loadAgentPromptFile, loadBasePromptFile } from './prompts.js'
 import { buildLanguageDirective } from './language.js'
 import { getContentLanguageFromRC } from './context.js'
 import { CONTINUITY_INSTRUCTIONS } from './continuity-instructions.js'
+import { DEFAULT_CONTINUITY_PLANNER_PROMPT } from './continuity-planner.js'
 
 // Default prompts (used when workspace/prompts/<type>.md 文件缺失时兜底)
 export const DEFAULT_PROMPTS: Record<string, { name: string; instructions: string }> = {
@@ -150,9 +151,14 @@ video_prompt 规则（硬约束）：
 - 项目设定的视觉风格描述会由工具在保存图片提示词时自动注入到最终提示词的最前方，不要自行添加风格词
 - 必须实际调用保存工具，不要只在回复中给出提示词`,
   },
+  continuity_planner: DEFAULT_CONTINUITY_PLANNER_PROMPT,
 }
 
-export const validAgentTypes = Object.keys(DEFAULT_PROMPTS)
+/** 所有可在设置页编辑的 Agent，包括由专用服务执行的衔接分析。 */
+export const promptAgentTypes = Object.keys(DEFAULT_PROMPTS)
+
+/** 仅提供通用聊天入口的 Agent 类型；专用分析服务不会暴露为普通聊天工具。 */
+export const validAgentTypes = ['script_rewriter', 'extractor', 'storyboard_breaker', 'prompt_generator']
 
 // Agent 每一步都会重新解析模型，相同端点只打一次日志避免刷屏
 let lastLoggedTextEndpointKey = ''

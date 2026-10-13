@@ -6,19 +6,19 @@
 import { Hono } from 'hono'
 import { success, badRequest } from '../utils/response.js'
 import { skillsManagerWorkspace } from '../agents/skills.js'
-import { validAgentTypes, DEFAULT_PROMPTS } from '../agents/index.js'
+import { promptAgentTypes, DEFAULT_PROMPTS } from '../agents/index.js'
 import { loadAgentPromptFile, serializePromptFile, promptFilePath } from '../agents/prompts.js'
 
 const app = new Hono()
 const fsm = () => skillsManagerWorkspace.filesystem!
 
-const checkType = (type: string) => validAgentTypes.includes(type)
+const checkType = (type: string) => promptAgentTypes.includes(type)
 const LANGS = ['zh', 'en', 'ja', 'ko']
 const normalizeLang = (v?: string) => (v && LANGS.includes(v) ? v : 'zh')
 
 // GET /prompts — 列出全部 Agent 的 prompt 状态（基础版口径；name/model 只属于基础版）
 app.get('/', async (c) => {
-  const list = await Promise.all(validAgentTypes.map(async (type) => {
+  const list = await Promise.all(promptAgentTypes.map(async (type) => {
     const file = await loadAgentPromptFile(type)
     return {
       agent_type: type,
